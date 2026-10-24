@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gh-screener"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["typer", "httpx", "python-dotenv"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+gh-screener = "gh_screener.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gh_screener"]
