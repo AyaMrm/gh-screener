@@ -8,3 +8,7 @@ class InvalidProfileError(DomainError):
 
 class ProfileNotFoundError(DomainError):
     """Raised when GitHub has no profile for the requested username."""
+
+
+class UnknownCriteriaOptionError(DomainError):
+    """Raised when a user selects an unsupported criteria option."""

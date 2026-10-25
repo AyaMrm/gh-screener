@@ -4,18 +4,28 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class Profile:
     username: str
-    public_repositories: int = 0
+    open_source_projects: int = 0
     followers: int = 0
     following: int = 0
     repository_languages: frozenset[str] = field(default_factory=frozenset)
-    commit_count: int = 0
+    commits_last_12_months: int = 0
 
 
 @dataclass(frozen=True)
 class ScreeningCriteria:
-    minimum_commits: int | None = None
+    minimum_commits_last_12_months: int | None = None
+    maximum_commits_last_12_months: int | None = None
     preferred_languages: frozenset[str] = field(default_factory=frozenset)
-    minimum_public_repositories: int | None = None
+    minimum_open_source_projects: int | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return (
+            self.minimum_commits_last_12_months is None
+            and self.maximum_commits_last_12_months is None
+            and not self.preferred_languages
+            and self.minimum_open_source_projects is None
+        )
 
 
 @dataclass(frozen=True)
