@@ -1,7 +1,7 @@
 import pytest
 
 from gh_screener.domain.criteria import build_criteria
-from gh_screener.domain.filters.commits import filter_commits
+from gh_screener.domain.filter.commits import filter_commits
 from gh_screener.domain.models import Profile
 
 

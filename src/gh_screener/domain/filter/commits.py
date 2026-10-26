@@ -19,6 +19,4 @@ def filter_commits(
     if minimum_commits is not None and commits < minimum_commits:
         return False
 
-    if maximum_commits is not None and commits > maximum_commits:
-        return False
-    return True
+    return not (maximum_commits is not None and commits > maximum_commits)
