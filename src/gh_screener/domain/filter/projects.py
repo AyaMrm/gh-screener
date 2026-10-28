@@ -1,4 +1,4 @@
-﻿from gh_screener.domain.models import Profile, ScreeningCriteria
+from gh_screener.domain.models import Profile, ScreeningCriteria
 
 
 def filter_projects(
@@ -11,8 +11,6 @@ def filter_projects(
 
     projects = profile.open_source_projects
     if projects is None:
-        raise ValueError(
-            f"Missing open source projects data for: {profile.username}"
-        )
+        raise ValueError(f"Missing open source projects data for: {profile.username}")
 
     return projects >= minimum

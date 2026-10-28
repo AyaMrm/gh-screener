@@ -17,7 +17,5 @@ class Filter(ABC):
         """Return whether the profile satisfies this filter."""
 
 
-def matches_all(
-    profile: Profile, filters: Collection[Filter]
-) -> bool:
+def matches_all(profile: Profile, filters: Collection[Filter]) -> bool:
     return all(current_filter.matches(profile) for current_filter in filters)
