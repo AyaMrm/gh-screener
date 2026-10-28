@@ -39,3 +39,11 @@ class ScreeningResult:
     matched_profiles: list[Profile] = field(default_factory=list)
     rejected_profiles: list[Profile] = field(default_factory=list)
     errors: list[ScreeningError] = field(default_factory=list)
+
+
+
+@dataclass(frozen=True)
+class Repo:
+    name: str
+    language: str | None
+    is_fork: bool
