@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-import httpx #pour communication avec api github
+import httpx  # pour communication avec api github
 
 from gh_screener.domain.exceptions import (
     AuthenticationError,
@@ -58,6 +58,6 @@ def _is_rate_limited(response: httpx.Response) -> bool:
 def _reset_time(response: httpx.Response) -> datetime | None:
     raw = response.headers.get("x-ratelimit-reset")  # unix timestamp
     try:
-        return datetime.fromtimestamp(int(raw), tz=timezone.utc)
+        return datetime.fromtimestamp(int(raw), tz=UTC)
     except (TypeError, ValueError):  # header missing or garbage
         return None
