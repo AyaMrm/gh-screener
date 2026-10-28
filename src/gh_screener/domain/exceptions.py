@@ -46,3 +46,7 @@ class GitHubApiError(GitHubIntegrationError):
     def __init__(self, message="GitHub API request failed", status_code=None):
         self.status_code = status_code
         super().__init__(message)
+
+
+class MalformedGitHubDataError(GitHubIntegrationError):
+    """Raised when GitHub returns data with missing fields or wrong types."""
