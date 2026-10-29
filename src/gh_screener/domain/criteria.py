@@ -60,8 +60,7 @@ def _get_option(
     except KeyError as error:
         available = ", ".join(options)
         raise UnknownCriteriaOptionError(
-            f"Unknown {criterion_name} option {selected!r}. "
-            f"Choose one of: {available}."
+            f"Unknown {criterion_name} option {selected!r}. Choose one of: {available}."
         ) from error
 
 
