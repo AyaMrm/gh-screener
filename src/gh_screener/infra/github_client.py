@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -26,6 +27,7 @@ GRAPHQL_URL = "https://api.github.com/graphql"
 REPO_FIELDS = frozenset({"open_source_projects", "repository_languages"})
 COMMIT_FIELDS = frozenset({"commits_last_12_months"})
 FOLLOW_FIELDS = frozenset({"followers", "following"})
+SECRET_FIELDS = frozenset({"has_committed_env_files"})
 
 # Letters, digits, hyphens, max 39 chars. Also blocks URL tricks like "../".
 _USERNAME = re.compile(r"[A-Za-z0-9-]{1,39}")
@@ -68,13 +70,27 @@ class GitHubClient:  # satisfies ProfileRepository (a Protocol, no inheritance n
             return self._cache[key]
 
         # Each block runs only if the filters need that data
-        repos = self._fetch_repos(name) if self._needs & REPO_FIELDS else []
+        needs_repos = self._needs & (REPO_FIELDS | SECRET_FIELDS)
+        repos = self._fetch_repos(name) if needs_repos else []
+
         commits = self._fetch_commits(name) if self._needs & COMMIT_FIELDS else 0
+
+        has_committed_env_files = (
+            self._fetch_committed_env_files(name, repos)
+            if self._needs & SECRET_FIELDS
+            else False
+        )
+
         followers, following = (
             self._fetch_follow_counts(name) if self._needs & FOLLOW_FIELDS else (0, 0)
         )
 
         profile = build_profile(name, repos, commits, followers, following)
+        if self._needs & SECRET_FIELDS:
+            profile = replace(
+                profile,
+                has_committed_env_files=has_committed_env_files,
+            )
         self._cache[key] = profile
         return profile
 
@@ -82,6 +98,40 @@ class GitHubClient:  # satisfies ProfileRepository (a Protocol, no inheritance n
         # Stops at the first failure. The application layer should call get_profile
         # per user and collect ScreeningError so one bad user doesn't stop the rest.
         return [self.get_profile(username) for username in usernames]
+
+    def _fetch_committed_env_files(
+            self, username: str, repos: list[Repo]
+    ) -> bool:
+        for repo in repos:
+            page = 1
+
+            while True:
+                commits = self._request(
+                    "GET",
+                    f"{REST_URL}/repos/{username}/{repo.name}/commits",
+                    username,
+                    params={"per_page": self._per_page, "page": page},
+                )
+
+                for commit in commits:
+                    details = self._request(
+                        "GET",
+                        f"{REST_URL}/repos/{username}/{repo.name}/commits/{commit['sha']}",
+                        username,
+                    )
+
+                    for file in details.get("files", []):
+                        filename = file.get("filename", "").split("/")[-1]
+
+                        if filename == ".env":
+                            return True
+
+                if len(commits) < self._per_page:
+                    break
+
+                page += 1
+
+        return False
 
     def _fetch_repos(self, username: str) -> list[Repo]:
         repos: list[Repo] = []

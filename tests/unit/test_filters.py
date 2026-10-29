@@ -4,6 +4,7 @@ import pytest
 
 from gh_screener.domain.criteria import build_criteria
 from gh_screener.domain.filter.commits import filter_commits
+from gh_screener.domain.filter.secrets import filter_secrets
 from gh_screener.domain.filter.stack import filter_stack
 from gh_screener.domain.models import Profile, Repo, ScreeningCriteria
 
@@ -147,6 +148,26 @@ def test_rejects_when_no_repositories_use_the_preferred_language():
 
     assert filter_stack(repos, profile, criteria) is False
 
+# -------------------------
+# Secrets filter tests
+# -------------------------
+
+@pytest.mark.parametrize(
+    ("has_committed_env_files", "expected"),
+    [
+        (True, False),   # Reject profiles that committed .env files
+        (False, True),   # Accept profiles without committed .env files
+    ],
+)
+def test_filter_secrets(has_committed_env_files, expected):
+    profile = Profile(
+        username="test-user",
+        has_committed_env_files=has_committed_env_files,
+    )
+    criteria = ScreeningCriteria()
+
+    assert filter_secrets(profile, criteria) is expected
+
 
 # -------------------------
 # Optional interactive menu
@@ -156,23 +177,25 @@ def main():
     print("Which tests do you want to run?")
     print("1. Commits")
     print("2. Stack languages")
-    print("3. Both")
+    print("3. Secrets")
+    print("4. All filters")
 
-    choice = input("Enter 1, 2, or 3: ").strip()
+    choice = input("Enter 1, 2, 3, or 4: ").strip()
 
     if choice == "1":
-        test_files = ["tests/unit/test_filters.py"]
-        pytest.main(["-k", "commits", *test_files])
+        pytest.main(["-k", "commits", "tests/unit/test_filters.py"])
 
     elif choice == "2":
         pytest.main(["-k", "stack", "tests/unit/test_filters.py"])
 
     elif choice == "3":
+        pytest.main(["-k", "secrets", "tests/unit/test_filters.py"])
+
+    elif choice == "4":
         pytest.main(["tests/unit/test_filters.py"])
 
     else:
-        print("Invalid choice. Please enter 1, 2, or 3.")
-
+        print("Invalid choice.")
 
 if __name__ == "__main__":
     main()

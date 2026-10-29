@@ -9,6 +9,7 @@ class Profile:
     following: int = 0
     repository_languages: frozenset[str] = field(default_factory=frozenset)
     commits_last_12_months: int = 0
+    has_committed_env_files: bool = False
 
 
 @dataclass(frozen=True)
