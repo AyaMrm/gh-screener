@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from typing import Any
 
 from gh_screener.domain.exceptions import MalformedGitHubDataError
@@ -38,18 +37,20 @@ def follow_counts_from_github(raw_user: Any) -> tuple[int, int]:
         raise MalformedGitHubDataError("User data lacks follower counts") from error
 
 
-def commit_count_from_graphql(raw: Any) -> int:
-    """Read totalCommitContributions from the GraphQL response."""
+def username_from_github(raw_user: Any) -> str:
+    """Read the canonical login from a GitHub user response."""
     try:
-        value = raw["data"]["user"]["contributionsCollection"]["totalCommitContributions"]
+        username = raw_user["login"]
     except (KeyError, TypeError) as error:  # also covers "user": null
-        raise MalformedGitHubDataError("GraphQL response lacks commit count") from error
-    return _count(value)
+        raise MalformedGitHubDataError("User data lacks a valid login") from error
+    if not isinstance(username, str) or not username:
+        raise MalformedGitHubDataError("User data lacks a valid login")
+    return username
 
 
 def build_profile(
     username: str,
-    repos: Iterable[Repo] = (),
+    repos: list[Repo],
     commits: int = 0,
     followers: int = 0,
     following: int = 0,

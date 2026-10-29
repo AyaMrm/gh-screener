@@ -7,17 +7,15 @@ header on every request.
 
 Data fetched per profile
 ------------------------
-* ``/users/{username}``         → followers, following, public_repos
-* ``/users/{username}/repos``   → repository_languages (union of all repos)
+* ``/users/{username}``         → login, followers, following
+* ``/users/{username}/repos``   → non-fork project count and languages
 * ``/users/{username}/events``  → commits_last_12_months (PushEvents in last
                                    365 days, counted as commits payload sum)
 
 Rate limits
 -----------
-A read-only token has 5,000 requests per hour.  Each profile costs up to three
-requests, so ~1,600 profiles per hour.  No explicit rate-limit handling is
-implemented; callers will receive a ``DomainError`` if the API responds with an
-unexpected status code.
+Rate limits and HTTP failures are translated into typed domain exceptions by
+``infra.error``. The optional secret scan is separately bounded.
 
 Dependency rule
 ---------------
@@ -33,8 +31,15 @@ from pathlib import PurePosixPath
 
 import httpx
 
-from gh_screener.domain.exceptions import DomainError, ProfileNotFoundError
-from gh_screener.domain.models import EnvCommitScanResult, Profile
+from gh_screener.domain.exceptions import DomainError
+from gh_screener.domain.models import EnvCommitScanResult, Profile, Repo
+from gh_screener.infra.error import raise_for_status
+from gh_screener.infra.mapper import (
+    build_profile,
+    follow_counts_from_github,
+    repos_from_github,
+    username_from_github,
+)
 
 _BASE_URL = "https://api.github.com"
 _TIMEOUT = 10.0
@@ -92,16 +97,12 @@ class GitHubClient:
                 "direction": "desc",
             },
         )
-        _raise_for_status(response, username)
-        repositories = response.json()
-        if not isinstance(repositories, list):
-            raise DomainError("GitHub returned an invalid repository list.")
+        raise_for_status(response, username)
+        repositories = repos_from_github(response.json())
 
         complete = len(repositories) <= _SECRET_SCAN_MAX_REPOSITORIES
         for repository in repositories[:_SECRET_SCAN_MAX_REPOSITORIES]:
-            name = repository.get("name") if isinstance(repository, dict) else None
-            if not isinstance(name, str) or not name:
-                raise DomainError("GitHub returned a repository without a valid name.")
+            name = repository.name
 
             commits_response = client.get(
                 f"/repos/{username}/{name}/commits",
@@ -111,7 +112,7 @@ class GitHubClient:
                     "page": 1,
                 },
             )
-            _raise_for_status(commits_response, username)
+            raise_for_status(commits_response, username)
             commits = commits_response.json()
             if not isinstance(commits, list):
                 raise DomainError("GitHub returned an invalid commit list.")
@@ -134,7 +135,7 @@ class GitHubClient:
                     raise DomainError("GitHub returned a commit without a valid SHA.")
 
                 detail_response = client.get(f"/repos/{username}/{name}/commits/{sha}")
-                _raise_for_status(detail_response, username)
+                raise_for_status(detail_response, username)
                 detail = detail_response.json()
                 files = detail.get("files") if isinstance(detail, dict) else None
                 if not isinstance(files, list):
@@ -153,28 +154,26 @@ class GitHubClient:
 
     def _fetch_profile(self, client: httpx.Client, username: str) -> Profile:
         user_data = self._get_user(client, username)
-        languages = self._get_languages(client, username)
+        repositories = self._get_repositories(client, username)
         commits = self._get_commits_last_12_months(client, username)
+        followers, following = follow_counts_from_github(user_data)
 
-        return Profile(
-            username=user_data["login"],
-            open_source_projects=user_data.get("public_repos", 0),
-            followers=user_data.get("followers", 0),
-            following=user_data.get("following", 0),
-            repository_languages=frozenset(languages),
-            commits_last_12_months=commits,
+        return build_profile(
+            username=username_from_github(user_data),
+            repos=repositories,
+            commits=commits,
+            followers=followers,
+            following=following,
         )
 
     def _get_user(self, client: httpx.Client, username: str) -> dict:
         response = client.get(f"/users/{username}")
-        if response.status_code == 404:
-            raise ProfileNotFoundError(f"No GitHub profile found for {username!r}.")
-        _raise_for_status(response, username)
+        raise_for_status(response, username, is_user_lookup=True)
         return response.json()
 
-    def _get_languages(self, client: httpx.Client, username: str) -> set[str]:
-        """Return the union of all languages used across the user's public repos."""
-        languages: set[str] = set()
+    def _get_repositories(self, client: httpx.Client, username: str) -> list[Repo]:
+        """Return all repositories owned by the user, across API pages."""
+        repositories: list[Repo] = []
         page = 1
         per_page = 100
 
@@ -183,20 +182,16 @@ class GitHubClient:
                 f"/users/{username}/repos",
                 params={"per_page": per_page, "page": page, "type": "owner"},
             )
-            _raise_for_status(response, username)
-            repos = response.json()
+            raise_for_status(response, username)
+            repos = repos_from_github(response.json())
             if not repos:
                 break
-            for repo in repos:
-                if repo.get("fork", False):
-                    continue
-                if repo.get("language"):
-                    languages.add(repo["language"])
+            repositories.extend(repos)
             if len(repos) < per_page:
                 break
             page += 1
 
-        return languages
+        return repositories
 
     def _get_commits_last_12_months(self, client: httpx.Client, username: str) -> int:
         """Count commits pushed by *username* in the last 365 days.
@@ -217,7 +212,7 @@ class GitHubClient:
                 f"/users/{username}/events/public",
                 params={"per_page": per_page, "page": page},
             )
-            _raise_for_status(response, username)
+            raise_for_status(response, username)
             events = response.json()
             if not events:
                 break
@@ -243,16 +238,6 @@ class GitHubClient:
             page += 1
 
         return total_commits
-
-
-def _raise_for_status(response: httpx.Response, username: str) -> None:
-    """Raise a :class:`~gh_screener.domain.exceptions.DomainError` for non-2xx responses."""
-    if response.is_success:
-        return
-    raise DomainError(
-        f"GitHub API returned {response.status_code} for {username!r}: "
-        f"{response.text[:200]}"
-    )
 
 
 def _is_env_file(filename: object) -> bool:

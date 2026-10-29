@@ -13,7 +13,13 @@ import json
 import httpx
 import pytest
 
-from gh_screener.domain.exceptions import DomainError, ProfileNotFoundError
+from gh_screener.domain.exceptions import (
+    AuthenticationError,
+    GitHubApiError,
+    MalformedGitHubDataError,
+    ProfileNotFoundError,
+    RateLimitError,
+)
 from gh_screener.domain.models import Profile
 from gh_screener.infra.github_client import GitHubClient, _is_env_file
 
@@ -82,9 +88,9 @@ _USER_RESPONSE = _make_response(200, {
 })
 
 _REPOS_RESPONSE = _make_response(200, [
-    {"language": "Python"},
-    {"language": "Go"},
-    {"language": None},       # repos with no language should be ignored
+    {"name": "python-repo", "language": "Python", "fork": False},
+    {"name": "go-repo", "language": "Go", "fork": False},
+    {"name": "empty-repo", "language": None, "fork": False},
 ])
 
 _EVENTS_RESPONSE = _make_response(200, [
@@ -124,7 +130,7 @@ def test_get_profile_returns_correct_username() -> None:
     assert profile.username == "octocat"
 
 
-def test_get_profile_maps_public_repos_to_open_source_projects() -> None:
+def test_get_profile_counts_non_fork_repositories_as_projects() -> None:
     routes = {
         "/users/octocat/events": _EVENTS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
@@ -133,7 +139,20 @@ def test_get_profile_maps_public_repos_to_open_source_projects() -> None:
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.open_source_projects == 8
+    assert profile.open_source_projects == 3
+
+
+def test_get_profile_rejects_malformed_repository_data() -> None:
+    malformed_repos = _make_response(200, [
+        {"name": "missing-fork-flag", "language": "Python"},
+    ])
+    routes = {
+        "/users/octocat": _USER_RESPONSE,
+        "/users/octocat/repos": malformed_repos,
+    }
+
+    with pytest.raises(MalformedGitHubDataError):
+        _patched_get_profile(GitHubClient(token="fake-token"), "octocat", routes)
 
 
 def test_get_profile_maps_followers_and_following() -> None:
@@ -176,8 +195,8 @@ def test_get_profile_counts_push_event_commits() -> None:
 
 def test_null_language_repos_are_excluded() -> None:
     repos_with_nulls = _make_response(200, [
-        {"language": None},
-        {"language": None},
+        {"name": "one", "language": None, "fork": False},
+        {"name": "two", "language": None, "fork": False},
     ])
     routes = {
         "/users/octocat/events": _EMPTY_EVENTS,
@@ -192,8 +211,8 @@ def test_null_language_repos_are_excluded() -> None:
 
 def test_languages_from_forked_repositories_are_excluded() -> None:
     repos_with_fork = _make_response(200, [
-        {"language": "Python", "fork": False},
-        {"language": "Go", "fork": True},
+        {"name": "python", "language": "Python", "fork": False},
+        {"name": "go-fork", "language": "Go", "fork": True},
     ])
     routes = {
         "/users/octocat/events": _EMPTY_EVENTS,
@@ -204,6 +223,7 @@ def test_languages_from_forked_repositories_are_excluded() -> None:
     profile = _patched_get_profile(GitHubClient(token="fake-token"), "octocat", routes)
 
     assert profile.repository_languages == frozenset({"Python"})
+    assert profile.open_source_projects == 1
 
 
 def test_no_events_gives_zero_commits() -> None:
@@ -267,8 +287,16 @@ def test_non_404_api_error_raises_domain_error() -> None:
     }
     client = GitHubClient(token="fake-token")
 
-    with pytest.raises(DomainError):
+    with pytest.raises(GitHubApiError):
         _patched_get_profile(client, "octocat", routes)
+
+
+def test_401_raises_authentication_error() -> None:
+    unauthorized = _make_response(401, {"message": "Bad credentials"})
+    routes = {"/users/octocat": unauthorized}
+
+    with pytest.raises(AuthenticationError):
+        _patched_get_profile(GitHubClient(token="fake-token"), "octocat", routes)
 
 
 def test_rate_limit_error_raises_domain_error() -> None:
@@ -280,7 +308,7 @@ def test_rate_limit_error_raises_domain_error() -> None:
     }
     client = GitHubClient(token="fake-token")
 
-    with pytest.raises(DomainError):
+    with pytest.raises(RateLimitError):
         _patched_get_profile(client, "octocat", routes)
 
 
@@ -292,7 +320,9 @@ def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
         "/repos/octocat/demo/commits": _make_response(200, [
             {"sha": "abc123", "author": {"login": "octocat"}},
         ]),
-        "/users/octocat/repos": _make_response(200, [{"name": "demo"}]),
+        "/users/octocat/repos": _make_response(200, [
+            {"name": "demo", "fork": False},
+        ]),
     }
     client = GitHubClient(token="fake-token")
 
@@ -306,7 +336,9 @@ def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
         "/repos/octocat/demo/commits": _make_response(200, [
             {"sha": "abc123", "author": {"login": "other-user"}},
         ]),
-        "/users/octocat/repos": _make_response(200, [{"name": "demo"}]),
+        "/users/octocat/repos": _make_response(200, [
+            {"name": "demo", "fork": False},
+        ]),
     }
     client = GitHubClient(token="fake-token")
 
@@ -314,6 +346,20 @@ def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
 
     assert result.found is False
     assert result.complete is True
+
+
+def test_missing_repository_during_scan_is_not_reported_as_missing_user() -> None:
+    routes = {
+        "/repos/octocat/demo/commits": _make_response(404, {"message": "Not Found"}),
+        "/users/octocat/repos": _make_response(200, [
+            {"name": "demo", "fork": False},
+        ]),
+    }
+
+    with pytest.raises(GitHubApiError):
+        _patched_scan_env_commits(
+            GitHubClient(token="fake-token"), "octocat", routes
+        )
 
 
 @pytest.mark.parametrize(
