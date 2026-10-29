@@ -1,10 +1,11 @@
-from gh_screener.domain.models import Profile, ScreeningCriteria,Repo
-from gh_screener.domain.filters import Filter
-from gh_screener.domain.filter.projects import filter_projects
+from collections.abc import Callable, Iterable
+
 from gh_screener.domain.filter.commits import filter_commits
+from gh_screener.domain.filter.projects import filter_projects
 from gh_screener.domain.filter.stack import filter_stack
-from collections.abc import Callable
-from collections.abc import Iterable
+from gh_screener.domain.filters import Filter
+from gh_screener.domain.models import Profile, Repo, ScreeningCriteria
+
 
 class CriteriaFilter(Filter):
     def __init__(
