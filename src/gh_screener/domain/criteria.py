@@ -25,6 +25,7 @@ def build_criteria(
     commits: str | None = None,
     languages: Iterable[str] = (),
     open_source_projects: str | None = None,
+    exclude_env_committers: bool = False,
 ) -> ScreeningCriteria:
     commit_values = _get_option(COMMIT_OPTIONS, commits, "commits")
     project_minimum = _get_option(
@@ -45,6 +46,7 @@ def build_criteria(
         ),
         preferred_languages=selected_languages,
         minimum_open_source_projects=project_minimum,
+        exclude_env_committers=exclude_env_committers,
     )
 
 

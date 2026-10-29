@@ -6,7 +6,7 @@ from gh_screener.domain.criteria import build_criteria
 from gh_screener.domain.filter.commits import filter_commits
 from gh_screener.domain.filter.secrets import filter_secrets
 from gh_screener.domain.filter.stack import filter_stack
-from gh_screener.domain.models import Profile, Repo, ScreeningCriteria
+from gh_screener.domain.models import Profile, ScreeningCriteria
 
 # -------------------------
 # Commits tests
@@ -53,100 +53,68 @@ def test_missing_commits_data_raises_error():
 # Stack language tests
 # -------------------------
 
-def make_repo(
-    language: str | None,
-    is_fork: bool = False,
-) -> Repo:
-    return Repo(
-        name="test-repo",
-        language=language,
-        is_fork=is_fork,
-    )
-
-
-def make_profile() -> Profile:
-    return Profile(username="test-user")
-
-
 def test_matches_when_all_preferred_languages_are_used():
-    repos = [
-        make_repo("Python"),
-        make_repo("Dart"),
-        make_repo("Java"),
-    ]
-    profile = make_profile()
+    profile = Profile(
+        username="test-user",
+        repository_languages=frozenset({"Python", "Dart", "Java"}),
+    )
     criteria = ScreeningCriteria(
         preferred_languages=frozenset({"Python", "Dart"})
     )
 
-    assert filter_stack(repos, profile, criteria) is True
+    assert filter_stack(profile, criteria) is True
 
 
 def test_rejects_when_a_preferred_language_is_missing():
-    repos = [
-        make_repo("Python"),
-        make_repo("Java"),
-    ]
-    profile = make_profile()
+    profile = Profile(
+        username="test-user",
+        repository_languages=frozenset({"Python", "Java"}),
+    )
     criteria = ScreeningCriteria(
         preferred_languages=frozenset({"Python", "Dart"})
     )
 
-    assert filter_stack(repos, profile, criteria) is False
+    assert filter_stack(profile, criteria) is False
 
 
 def test_language_matching_is_case_insensitive():
-    repos = [make_repo("python")]
-    profile = make_profile()
+    profile = Profile(
+        username="test-user",
+        repository_languages=frozenset({"python"}),
+    )
     criteria = ScreeningCriteria(
         preferred_languages=frozenset({"Python"})
     )
 
-    assert filter_stack(repos, profile, criteria) is True
-
-
-def test_ignores_forked_repositories():
-    repos = [
-        make_repo("Python"),
-        make_repo("Dart", is_fork=True),
-    ]
-    profile = make_profile()
-    criteria = ScreeningCriteria(
-        preferred_languages=frozenset({"Python", "Dart"})
-    )
-
-    assert filter_stack(repos, profile, criteria) is False
+    assert filter_stack(profile, criteria) is True
 
 
 def test_ignores_repositories_without_a_language():
-    repos = [
-        make_repo(None),
-        make_repo("Python"),
-    ]
-    profile = make_profile()
+    profile = Profile(
+        username="test-user",
+        repository_languages=frozenset({"Python"}),
+    )
     criteria = ScreeningCriteria(
         preferred_languages=frozenset({"Python"})
     )
 
-    assert filter_stack(repos, profile, criteria) is True
+    assert filter_stack(profile, criteria) is True
 
 
 def test_empty_preferred_languages_match_any_profile():
-    repos = [make_repo("Python")]
-    profile = make_profile()
+    profile = Profile(username="test-user")
     criteria = ScreeningCriteria()
 
-    assert filter_stack(repos, profile, criteria) is True
+    assert filter_stack(profile, criteria) is True
 
 
 def test_rejects_when_no_repositories_use_the_preferred_language():
-    repos = []
-    profile = make_profile()
+    profile = Profile(username="test-user")
     criteria = ScreeningCriteria(
         preferred_languages=frozenset({"Python"})
     )
 
-    assert filter_stack(repos, profile, criteria) is False
+    assert filter_stack(profile, criteria) is False
 
 # -------------------------
 # Secrets filter tests

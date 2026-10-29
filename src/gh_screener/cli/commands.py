@@ -81,6 +81,13 @@ def screen(
             metavar="LEVEL",
         ),
     ] = None,
+    exclude_env_committers: Annotated[
+        bool,
+        typer.Option(
+            "--exclude-env-committers",
+            help="Reject profiles that have committed .env files.",
+        ),
+    ] = False,
 ) -> None:
     """Screen one or more GitHub profiles against chosen criteria.
 
@@ -105,6 +112,7 @@ def screen(
             commits=commits,
             languages=languages or [],
             open_source_projects=open_source_projects,
+            exclude_env_committers=exclude_env_committers,
         )
     except UnknownCriteriaOptionError as exc:
         typer.echo(f"Error: {exc}", err=True)
