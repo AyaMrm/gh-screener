@@ -1,5 +1,4 @@
 import pytest
-
 from gh_screener.domain.criteria import build_criteria
 from gh_screener.domain.filter.builder import build_filters
 from gh_screener.domain.models import Profile, Repo
