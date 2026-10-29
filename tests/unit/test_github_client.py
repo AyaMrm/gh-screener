@@ -60,6 +60,14 @@ def _patched_get_profile(gh_client: GitHubClient, username: str, routes: dict) -
         return gh_client._fetch_profile(http, username)
 
 
+def _patched_scan_env_commits(
+    gh_client: GitHubClient, username: str, routes: dict
+):
+    transport = _FakeTransport(routes)
+    with httpx.Client(base_url="https://api.github.com", transport=transport) as http:
+        return gh_client._scan_env_commits(http, username)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -258,3 +266,35 @@ def test_rate_limit_error_raises_domain_error() -> None:
 
     with pytest.raises(DomainError):
         _patched_get_profile(client, "octocat", routes)
+
+
+def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
+    routes = {
+        "/repos/octocat/demo/commits/abc123": _make_response(200, {
+            "files": [{"filename": "config/.env.production"}],
+        }),
+        "/repos/octocat/demo/commits": _make_response(200, [
+            {"sha": "abc123", "author": {"login": "octocat"}},
+        ]),
+        "/users/octocat/repos": _make_response(200, [{"name": "demo"}]),
+    }
+    client = GitHubClient(token="fake-token")
+
+    result = _patched_scan_env_commits(client, "octocat", routes)
+
+    assert result.found is True
+
+
+def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
+    routes = {
+        "/repos/octocat/demo/commits": _make_response(200, [
+            {"sha": "abc123", "author": {"login": "other-user"}},
+        ]),
+        "/users/octocat/repos": _make_response(200, [{"name": "demo"}]),
+    }
+    client = GitHubClient(token="fake-token")
+
+    result = _patched_scan_env_commits(client, "octocat", routes)
+
+    assert result.found is False
+    assert result.complete is True

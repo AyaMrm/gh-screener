@@ -31,6 +31,7 @@ class FakeProfileRepository:
 
     def __init__(self, profiles: dict[str, Profile] | None = None) -> None:
         self._profiles: dict[str, Profile] = profiles or {}
+        self.env_scan_calls: list[str] = []
 
     def get_profile(self, username: str) -> Profile:
         """Return the profile for *username* or raise ProfileNotFoundError."""
@@ -46,6 +47,7 @@ class FakeProfileRepository:
         return [self.get_profile(u) for u in usernames]
 
     def scan_env_commits(self, username: str) -> EnvCommitScanResult:
+        self.env_scan_calls.append(username)
         profile = self.get_profile(username)
         return EnvCommitScanResult(
             found=profile.has_committed_env_files,

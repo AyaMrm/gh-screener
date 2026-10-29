@@ -10,6 +10,21 @@ def test_no_criteria_returns_empty_list():
     filters=build_filters(criteria)
     assert filters==[]
 
+
+def test_secret_filter_is_only_built_when_requested():
+    assert build_filters(build_criteria()) == []
+
+    filters = build_filters(build_criteria(exclude_env_committers=True))
+
+    assert len(filters) == 1
+    assert filters[0].requires == frozenset({"has_committed_env_files"})
+    assert filters[0].matches(
+        Profile(username="careful", has_committed_env_files=False)
+    ) is True
+    assert filters[0].matches(
+        Profile(username="careless", has_committed_env_files=True)
+    ) is False
+
 @pytest.mark.parametrize(
     ("criteria","expected_count"),
     [

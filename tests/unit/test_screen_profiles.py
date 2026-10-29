@@ -34,6 +34,24 @@ def test_empty_criteria_matches_every_profile() -> None:
     assert result.errors == []
 
 
+def test_secret_filter_only_scans_and_rejects_when_requested() -> None:
+    profile = _profile("dev", has_committed_env_files=True)
+    repo = FakeProfileRepository({"dev": profile})
+
+    without_filter = screen_profiles(["dev"], build_criteria(), repo)
+
+    assert [p.username for p in without_filter.matched_profiles] == ["dev"]
+    assert repo.env_scan_calls == []
+
+    with_filter = screen_profiles(
+        ["dev"], build_criteria(exclude_env_committers=True), repo
+    )
+
+    assert with_filter.matched_profiles == []
+    assert [p.username for p in with_filter.rejected_profiles] == ["dev"]
+    assert repo.env_scan_calls == ["dev"]
+
+
 # ---------------------------------------------------------------------------
 # Commit criterion
 # ---------------------------------------------------------------------------
