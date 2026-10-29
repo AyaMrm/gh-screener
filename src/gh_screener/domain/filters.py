@@ -5,8 +5,6 @@ from .models import Profile
 
 
 class Filter(ABC):
-    """A single screening rule and the profile data it needs."""
-
     @property
     @abstractmethod
     def requires(self) -> frozenset[str]:
