@@ -1,9 +1,16 @@
+#test both commits and stack
+
 import pytest
 
 from gh_screener.domain.criteria import build_criteria
 from gh_screener.domain.filter.commits import filter_commits
-from gh_screener.domain.models import Profile
+from gh_screener.domain.filter.secrets import filter_secrets
+from gh_screener.domain.filter.stack import filter_stack
+from gh_screener.domain.models import Profile, Repo, ScreeningCriteria
 
+# -------------------------
+# Commits tests
+# -------------------------
 
 @pytest.mark.parametrize(
     ("level", "count", "expected"),
@@ -40,3 +47,155 @@ def test_missing_commits_data_raises_error():
 
     with pytest.raises(ValueError, match="Missing commits data"):
         filter_commits(profile, criteria)
+
+
+# -------------------------
+# Stack language tests
+# -------------------------
+
+def make_repo(
+    language: str | None,
+    is_fork: bool = False,
+) -> Repo:
+    return Repo(
+        name="test-repo",
+        language=language,
+        is_fork=is_fork,
+    )
+
+
+def make_profile() -> Profile:
+    return Profile(username="test-user")
+
+
+def test_matches_when_all_preferred_languages_are_used():
+    repos = [
+        make_repo("Python"),
+        make_repo("Dart"),
+        make_repo("Java"),
+    ]
+    profile = make_profile()
+    criteria = ScreeningCriteria(
+        preferred_languages=frozenset({"Python", "Dart"})
+    )
+
+    assert filter_stack(repos, profile, criteria) is True
+
+
+def test_rejects_when_a_preferred_language_is_missing():
+    repos = [
+        make_repo("Python"),
+        make_repo("Java"),
+    ]
+    profile = make_profile()
+    criteria = ScreeningCriteria(
+        preferred_languages=frozenset({"Python", "Dart"})
+    )
+
+    assert filter_stack(repos, profile, criteria) is False
+
+
+def test_language_matching_is_case_insensitive():
+    repos = [make_repo("python")]
+    profile = make_profile()
+    criteria = ScreeningCriteria(
+        preferred_languages=frozenset({"Python"})
+    )
+
+    assert filter_stack(repos, profile, criteria) is True
+
+
+def test_ignores_forked_repositories():
+    repos = [
+        make_repo("Python"),
+        make_repo("Dart", is_fork=True),
+    ]
+    profile = make_profile()
+    criteria = ScreeningCriteria(
+        preferred_languages=frozenset({"Python", "Dart"})
+    )
+
+    assert filter_stack(repos, profile, criteria) is False
+
+
+def test_ignores_repositories_without_a_language():
+    repos = [
+        make_repo(None),
+        make_repo("Python"),
+    ]
+    profile = make_profile()
+    criteria = ScreeningCriteria(
+        preferred_languages=frozenset({"Python"})
+    )
+
+    assert filter_stack(repos, profile, criteria) is True
+
+
+def test_empty_preferred_languages_match_any_profile():
+    repos = [make_repo("Python")]
+    profile = make_profile()
+    criteria = ScreeningCriteria()
+
+    assert filter_stack(repos, profile, criteria) is True
+
+
+def test_rejects_when_no_repositories_use_the_preferred_language():
+    repos = []
+    profile = make_profile()
+    criteria = ScreeningCriteria(
+        preferred_languages=frozenset({"Python"})
+    )
+
+    assert filter_stack(repos, profile, criteria) is False
+
+# -------------------------
+# Secrets filter tests
+# -------------------------
+
+@pytest.mark.parametrize(
+    ("has_committed_env_files", "expected"),
+    [
+        (True, False),   # Reject profiles that committed .env files
+        (False, True),   # Accept profiles without committed .env files
+    ],
+)
+def test_filter_secrets(has_committed_env_files, expected):
+    profile = Profile(
+        username="test-user",
+        has_committed_env_files=has_committed_env_files,
+    )
+    criteria = ScreeningCriteria()
+
+    assert filter_secrets(profile, criteria) is expected
+
+
+# -------------------------
+# Optional interactive menu
+# -------------------------
+
+def main():
+    print("Which tests do you want to run?")
+    print("1. Commits")
+    print("2. Stack languages")
+    print("3. Secrets")
+    print("4. All filters")
+
+    choice = input("Enter 1, 2, 3, or 4: ").strip()
+
+    if choice == "1":
+        pytest.main(["-k", "commits", "tests/unit/test_filters.py"])
+
+    elif choice == "2":
+        pytest.main(["-k", "stack", "tests/unit/test_filters.py"])
+
+    elif choice == "3":
+        pytest.main(["-k", "secrets", "tests/unit/test_filters.py"])
+
+    elif choice == "4":
+        pytest.main(["tests/unit/test_filters.py"])
+
+    else:
+        print("Invalid choice.")
+
+if __name__ == "__main__":
+    main()

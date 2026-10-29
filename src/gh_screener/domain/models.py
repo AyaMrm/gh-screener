@@ -9,6 +9,7 @@ class Profile:
     following: int = 0
     repository_languages: frozenset[str] = field(default_factory=frozenset)
     commits_last_12_months: int = 0
+    has_committed_env_files: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,3 +40,11 @@ class ScreeningResult:
     matched_profiles: list[Profile] = field(default_factory=list)
     rejected_profiles: list[Profile] = field(default_factory=list)
     errors: list[ScreeningError] = field(default_factory=list)
+
+
+
+@dataclass(frozen=True)
+class Repo:
+    name: str
+    language: str | None
+    is_fork: bool
