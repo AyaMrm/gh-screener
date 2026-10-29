@@ -2,7 +2,7 @@ import pytest
 
 from gh_screener.domain.criteria import build_criteria
 from gh_screener.domain.filter.builder import build_filters
-from gh_screener.domain.models import Profile, Repo
+from gh_screener.domain.models import Profile
 
 
 def test_no_criteria_returns_empty_list():
@@ -68,23 +68,20 @@ def test_project_filter_matches_profile():
 
 def test_stack_filter_matches_profile_when_all_languages_used():
     criteria=build_criteria(languages=["Python","Java"])
-    repos=[
-        Repo(name="repo-1",language="Python",is_fork=False),
-        Repo(name="repo-2",language="Java",is_fork=False),
-
-    ]
-    filters=build_filters(criteria,repos)
-    profile=Profile(username="test_user")
+    filters=build_filters(criteria)
+    profile=Profile(
+        username="test_user",
+        repository_languages=frozenset({"Python", "Java"}),
+    )
     assert filters[0].matches(profile) is True
 
 def test_stack_filter_matches_profile_when_language_missing():
     criteria=build_criteria(languages=["Python","Java"])
-    repos=[
-            Repo(name="repo-1",language="Python",is_fork=False),
-    
-    ]
-    filters=build_filters(criteria,repos)
-    profile=Profile(username="test_user")
+    filters=build_filters(criteria)
+    profile=Profile(
+        username="test_user",
+        repository_languages=frozenset({"Python"}),
+    )
     assert filters[0].matches(profile) is False
 
 def test_filters_expose_required_fields():
@@ -93,10 +90,7 @@ def test_filters_expose_required_fields():
         open_source_projects="senior-dev",
         languages=["Python"],
     )
-    repos =[
-        Repo(name="repo-1",language="Python",is_fork=False),
-    ]
-    filters=build_filters(criteria,repos)
+    filters=build_filters(criteria)
     required_filters=set().union(
         *(current_filter.requires for current_filter in filters)
 
@@ -104,5 +98,5 @@ def test_filters_expose_required_fields():
     assert required_filters=={
         "commits_last_12_months",
         "open_source_projects",
-        "repos"
+        "repository_languages"
     }

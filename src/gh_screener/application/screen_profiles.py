@@ -21,11 +21,9 @@ from collections.abc import Iterable
 from dataclasses import replace
 
 from gh_screener.domain.exceptions import DomainError, SecretScanIncompleteError
-from gh_screener.domain.filter.commits import filter_commits
-from gh_screener.domain.filter.projects import filter_projects
-from gh_screener.domain.filter.secrets import filter_secrets
+from gh_screener.domain.filter.builder import build_filters
+from gh_screener.domain.filters import matches_all
 from gh_screener.domain.models import (
-    Profile,
     ScreeningCriteria,
     ScreeningError,
     ScreeningResult,
@@ -58,6 +56,7 @@ def screen_profiles(
         (usernames that could not be fetched or evaluated).
     """
     result = ScreeningResult()
+    filters = build_filters(criteria)
 
     for username in usernames:
         try:
@@ -74,39 +73,9 @@ def screen_profiles(
             result.errors.append(ScreeningError(username=username, message=str(exc)))
             continue
 
-        if _matches_all_criteria(profile, criteria):
+        if matches_all(profile, filters):
             result.matched_profiles.append(profile)
         else:
             result.rejected_profiles.append(profile)
 
     return result
-
-
-def _matches_all_criteria(profile: Profile, criteria: ScreeningCriteria) -> bool:
-    """Return ``True`` if *profile* satisfies every active criterion.
-
-    When *criteria* is empty (no option selected) every profile matches.
-    Each individual filter returns ``True`` when its criterion is not active,
-    so the calls are always safe to make.
-
-    The preferred-language check is performed here directly: a profile must
-    use *all* of the requested languages (exact set membership).  A dedicated
-    ``filter_languages`` function will replace this once issue #9 (Part C) is
-    merged; at that point this helper can simply delegate to it.
-    """
-    if criteria.is_empty:
-        return True
-
-    if criteria.exclude_env_committers and not filter_secrets(profile, criteria):
-        return False
-
-    if not filter_commits(profile, criteria):
-        return False
-
-    if not filter_projects(profile, criteria):
-        return False
-
-    return not (
-        criteria.preferred_languages
-        and not criteria.preferred_languages.issubset(profile.repository_languages)
-    )

@@ -188,6 +188,8 @@ class GitHubClient:
             if not repos:
                 break
             for repo in repos:
+                if repo.get("fork", False):
+                    continue
                 if repo.get("language"):
                     languages.add(repo["language"])
             if len(repos) < per_page:

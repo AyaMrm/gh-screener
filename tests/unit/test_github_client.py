@@ -190,6 +190,22 @@ def test_null_language_repos_are_excluded() -> None:
     assert profile.repository_languages == frozenset()
 
 
+def test_languages_from_forked_repositories_are_excluded() -> None:
+    repos_with_fork = _make_response(200, [
+        {"language": "Python", "fork": False},
+        {"language": "Go", "fork": True},
+    ])
+    routes = {
+        "/users/octocat/events": _EMPTY_EVENTS,
+        "/users/octocat/repos": repos_with_fork,
+        "/users/octocat": _USER_RESPONSE,
+    }
+
+    profile = _patched_get_profile(GitHubClient(token="fake-token"), "octocat", routes)
+
+    assert profile.repository_languages == frozenset({"Python"})
+
+
 def test_no_events_gives_zero_commits() -> None:
     routes = {
         "/users/octocat/events": _EMPTY_EVENTS,
