@@ -37,6 +37,12 @@ class ScreeningError:
     message: str
 
 
+@dataclass(frozen=True)
+class EnvCommitScanResult:
+    found: bool
+    complete: bool
+
+
 @dataclass
 class ScreeningResult:
     matched_profiles: list[Profile] = field(default_factory=list)

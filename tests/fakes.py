@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from gh_screener.domain.exceptions import ProfileNotFoundError
-from gh_screener.domain.models import Profile
+from gh_screener.domain.models import EnvCommitScanResult, Profile
 
 
 class FakeProfileRepository:
@@ -44,3 +44,10 @@ class FakeProfileRepository:
     def get_profiles(self, usernames: Iterable[str]) -> list[Profile]:
         """Return profiles for all *usernames* in order."""
         return [self.get_profile(u) for u in usernames]
+
+    def scan_env_commits(self, username: str) -> EnvCommitScanResult:
+        profile = self.get_profile(username)
+        return EnvCommitScanResult(
+            found=profile.has_committed_env_files,
+            complete=True,
+        )

@@ -29,14 +29,17 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Iterable
+from pathlib import PurePosixPath
 
 import httpx
 
 from gh_screener.domain.exceptions import DomainError, ProfileNotFoundError
-from gh_screener.domain.models import Profile
+from gh_screener.domain.models import EnvCommitScanResult, Profile
 
 _BASE_URL = "https://api.github.com"
 _TIMEOUT = 10.0
+_SECRET_SCAN_MAX_REPOSITORIES = 5
+_SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
 
 
 class GitHubClient:
@@ -69,6 +72,84 @@ class GitHubClient:
             base_url=_BASE_URL, headers=self._headers, timeout=_TIMEOUT
         ) as client:
             return [self._fetch_profile(client, u) for u in usernames]
+
+    def scan_env_commits(self, username: str) -> EnvCommitScanResult:
+        with httpx.Client(
+            base_url=_BASE_URL, headers=self._headers, timeout=_TIMEOUT
+        ) as client:
+            return self._scan_env_commits(client, username)
+
+    def _scan_env_commits(
+        self, client: httpx.Client, username: str
+    ) -> EnvCommitScanResult:
+        response = client.get(
+            f"/users/{username}/repos",
+            params={
+                "per_page": _SECRET_SCAN_MAX_REPOSITORIES + 1,
+                "page": 1,
+                "type": "owner",
+                "sort": "updated",
+                "direction": "desc",
+            },
+        )
+        _raise_for_status(response, username)
+        repositories = response.json()
+        if not isinstance(repositories, list):
+            raise DomainError("GitHub returned an invalid repository list.")
+
+        complete = len(repositories) <= _SECRET_SCAN_MAX_REPOSITORIES
+        for repository in repositories[:_SECRET_SCAN_MAX_REPOSITORIES]:
+            name = repository.get("name") if isinstance(repository, dict) else None
+            if not isinstance(name, str) or not name:
+                raise DomainError("GitHub returned a repository without a valid name.")
+
+            commits_response = client.get(
+                f"/repos/{username}/{name}/commits",
+                params={
+                    "author": username,
+                    "per_page": _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY + 1,
+                    "page": 1,
+                },
+            )
+            _raise_for_status(commits_response, username)
+            commits = commits_response.json()
+            if not isinstance(commits, list):
+                raise DomainError("GitHub returned an invalid commit list.")
+
+            if len(commits) > _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY:
+                complete = False
+
+            for commit in commits[:_SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY]:
+                if not isinstance(commit, dict):
+                    raise DomainError("GitHub returned an invalid commit record.")
+                author = commit.get("author")
+                author_login = author.get("login") if isinstance(author, dict) else None
+                if (
+                    not isinstance(author_login, str)
+                    or author_login.casefold() != username.casefold()
+                ):
+                    continue
+                sha = commit.get("sha")
+                if not isinstance(sha, str) or not sha:
+                    raise DomainError("GitHub returned a commit without a valid SHA.")
+
+                detail_response = client.get(f"/repos/{username}/{name}/commits/{sha}")
+                _raise_for_status(detail_response, username)
+                detail = detail_response.json()
+                files = detail.get("files") if isinstance(detail, dict) else None
+                if not isinstance(files, list):
+                    raise DomainError("GitHub returned commit details without a file list.")
+
+                if any(
+                    _is_env_file(file.get("filename"))
+                    for file in files
+                    if isinstance(file, dict)
+                ):
+                    return EnvCommitScanResult(found=True, complete=True)
+                if "next" in detail_response.links:
+                    complete = False
+
+        return EnvCommitScanResult(found=False, complete=complete)
 
     def _fetch_profile(self, client: httpx.Client, username: str) -> Profile:
         user_data = self._get_user(client, username)
@@ -170,3 +251,10 @@ def _raise_for_status(response: httpx.Response, username: str) -> None:
         f"GitHub API returned {response.status_code} for {username!r}: "
         f"{response.text[:200]}"
     )
+
+
+def _is_env_file(filename: object) -> bool:
+    if not isinstance(filename, str):
+        return False
+    basename = PurePosixPath(filename).name.casefold()
+    return basename == ".env" or basename.startswith(".env.")

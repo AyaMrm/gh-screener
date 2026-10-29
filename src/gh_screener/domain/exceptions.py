@@ -50,3 +50,5 @@ class GitHubApiError(GitHubIntegrationError):
 
 class MalformedGitHubDataError(GitHubIntegrationError):
     """Raised when GitHub returns data with missing fields or wrong types."""
+class SecretScanIncompleteError(DomainError):
+    """Raised when a requested .env commit scan hits its safety limit."""

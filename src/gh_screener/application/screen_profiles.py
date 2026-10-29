@@ -18,8 +18,9 @@ tests) inject the concrete implementation.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
-from gh_screener.domain.exceptions import DomainError
+from gh_screener.domain.exceptions import DomainError, SecretScanIncompleteError
 from gh_screener.domain.filter.commits import filter_commits
 from gh_screener.domain.filter.projects import filter_projects
 from gh_screener.domain.filter.secrets import filter_secrets
@@ -61,6 +62,14 @@ def screen_profiles(
     for username in usernames:
         try:
             profile = repository.get_profile(username)
+            if criteria.exclude_env_committers:
+                scan = repository.scan_env_commits(username)
+                if not scan.complete and not scan.found:
+                    raise SecretScanIncompleteError(
+                        "The .env commit scan reached its limit before it could "
+                        "confirm whether this profile is clear."
+                    )
+                profile = replace(profile, has_committed_env_files=scan.found)
         except DomainError as exc:
             result.errors.append(ScreeningError(username=username, message=str(exc)))
             continue
