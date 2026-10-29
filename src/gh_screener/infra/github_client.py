@@ -38,7 +38,7 @@ from gh_screener.domain.models import EnvCommitScanResult, Profile
 
 _BASE_URL = "https://api.github.com"
 _TIMEOUT = 10.0
-_SECRET_SCAN_MAX_REPOSITORIES = 5
+_SECRET_SCAN_MAX_REPOSITORIES = 20
 _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
 
 
@@ -257,4 +257,11 @@ def _is_env_file(filename: object) -> bool:
     if not isinstance(filename, str):
         return False
     basename = PurePosixPath(filename).name.casefold()
-    return basename == ".env" or basename.startswith(".env.")
+    if basename == ".env":
+        return True
+    if not basename.startswith(".env."):
+        return False
+    
+    template_markers = {"default", "defaults", "dist", "example", "sample", "template"}
+    suffix = basename[len(".env."):].split(".", maxsplit=1)[0]
+    return suffix not in template_markers

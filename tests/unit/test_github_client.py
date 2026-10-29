@@ -15,7 +15,7 @@ import pytest
 
 from gh_screener.domain.exceptions import DomainError, ProfileNotFoundError
 from gh_screener.domain.models import Profile
-from gh_screener.infra.github_client import GitHubClient
+from gh_screener.infra.github_client import GitHubClient, _is_env_file
 
 # ---------------------------------------------------------------------------
 # Helpers — build a fake httpx transport
@@ -298,3 +298,26 @@ def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
 
     assert result.found is False
     assert result.complete is True
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [".env", "config/.env.local", ".env.production.local"],
+)
+def test_env_file_matcher_detects_env_files(filename: str) -> None:
+    assert _is_env_file(filename) is True
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        ".env.example",
+        "config/.env.sample",
+        ".env.template.local",
+        ".env.defaults",
+        "example.env",
+        None,
+    ],
+)
+def test_env_file_matcher_ignores_templates_and_unrelated_files(filename: object) -> None:
+    assert _is_env_file(filename) is False
