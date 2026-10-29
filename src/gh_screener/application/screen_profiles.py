@@ -22,6 +22,7 @@ from collections.abc import Iterable
 from gh_screener.domain.exceptions import DomainError
 from gh_screener.domain.filter.commits import filter_commits
 from gh_screener.domain.filter.projects import filter_projects
+from gh_screener.domain.filter.secrets import filter_secrets
 from gh_screener.domain.models import (
     Profile,
     ScreeningCriteria,
@@ -86,6 +87,9 @@ def _matches_all_criteria(profile: Profile, criteria: ScreeningCriteria) -> bool
     """
     if criteria.is_empty:
         return True
+
+    if criteria.exclude_env_committers and not filter_secrets(profile, criteria):
+        return False
 
     if not filter_commits(profile, criteria):
         return False

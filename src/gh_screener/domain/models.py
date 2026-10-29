@@ -18,6 +18,7 @@ class ScreeningCriteria:
     maximum_commits_last_12_months: int | None = None
     preferred_languages: frozenset[str] = field(default_factory=frozenset)
     minimum_open_source_projects: int | None = None
+    exclude_env_committers: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -26,6 +27,7 @@ class ScreeningCriteria:
             and self.maximum_commits_last_12_months is None
             and not self.preferred_languages
             and self.minimum_open_source_projects is None
+            and not self.exclude_env_committers
         )
 
 

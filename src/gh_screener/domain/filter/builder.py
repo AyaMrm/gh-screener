@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterable
 
 from gh_screener.domain.filter.commits import filter_commits
 from gh_screener.domain.filter.projects import filter_projects
+from gh_screener.domain.filter.secrets import filter_secrets
 from gh_screener.domain.filter.stack import filter_stack
 from gh_screener.domain.filters import Filter
 from gh_screener.domain.models import Profile, Repo, ScreeningCriteria
@@ -40,9 +41,19 @@ class StackFilter(Filter):
         return frozenset({"repos"})
     def matches(self, profile:Profile)->bool:
         return filter_stack(self.repos,profile,self.criteria)
-    
+
+
 def build_filters(criteria: ScreeningCriteria,repos:Iterable[Repo]=())-> list[Filter]:
     filters:list[Filter]=[]
+
+    if criteria.exclude_env_committers:
+        filters.append(
+            CriteriaFilter(
+                criteria,
+                filter_secrets,
+                frozenset({"has_committed_env_files"}),
+            )
+        )
 
     if (
         criteria.maximum_commits_last_12_months is  not None
