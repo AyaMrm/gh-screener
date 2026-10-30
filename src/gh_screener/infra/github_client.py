@@ -80,6 +80,13 @@ class GitHubClient:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        self._client = httpx.Client(
+            base_url=_BASE_URL, headers=self._headers, timeout=_TIMEOUT
+        )
+
+    def close(self) -> None:
+        """Close the shared HTTP connection pool."""
+        self._client.close()
 
     def _request(
         self,
@@ -97,23 +104,14 @@ class GitHubClient:
 
     def get_profile(self, username: str) -> Profile:
         """Fetch a single profile and return a normalised :class:`Profile`."""
-        with httpx.Client(
-            base_url=_BASE_URL, headers=self._headers, timeout=_TIMEOUT
-        ) as client:
-            return self._fetch_profile(client, username)
+        return self._fetch_profile(self._client, username)
 
     def get_profiles(self, usernames: Iterable[str]) -> list[Profile]:
         """Fetch multiple profiles, sharing a single HTTP connection pool."""
-        with httpx.Client(
-            base_url=_BASE_URL, headers=self._headers, timeout=_TIMEOUT
-        ) as client:
-            return [self._fetch_profile(client, u) for u in usernames]
+        return [self._fetch_profile(self._client, username) for username in usernames]
 
     def scan_env_commits(self, username: str) -> EnvCommitScanResult:
-        with httpx.Client(
-            base_url=_BASE_URL, headers=self._headers, timeout=_TIMEOUT
-        ) as client:
-            return self._scan_env_commits(client, username)
+        return self._scan_env_commits(self._client, username)
 
     def _scan_env_commits(
         self, client: httpx.Client, username: str

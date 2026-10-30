@@ -18,7 +18,8 @@ tests) inject the concrete implementation.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 
 from gh_screener.domain.exceptions import (
     DomainError,
@@ -28,11 +29,50 @@ from gh_screener.domain.exceptions import (
 from gh_screener.domain.filter.builder import build_filters
 from gh_screener.domain.filters import matches_all
 from gh_screener.domain.models import (
+    Profile,
     ScreeningCriteria,
     ScreeningError,
     ScreeningResult,
 )
 from gh_screener.domain.ports import ProfileRepository
+
+_MAX_CONCURRENT_PROFILES = 3
+
+
+@dataclass(frozen=True)
+class _ProfileOutcome:
+    profile: Profile | None = None
+    error: ScreeningError | None = None
+    rate_limited: bool = False
+
+
+def _fetch_profile(
+    username: str,
+    criteria: ScreeningCriteria,
+    repository: ProfileRepository,
+) -> _ProfileOutcome:
+    try:
+        profile = repository.get_profile(username)
+        if criteria.exclude_env_committers:
+            scan = repository.scan_env_commits(username)
+            if not scan.complete and not scan.found:
+                raise SecretScanIncompleteError(
+                    "The .env commit scan reached its limit before it could "
+                    "confirm whether this profile is clear."
+                )
+            profile = replace(profile, has_committed_env_files=scan.found)
+    except RateLimitError as exc:
+        message = str(exc)
+        if exc.reset_at is not None:
+            message += f" Retry after {exc.reset_at.isoformat()}."
+        return _ProfileOutcome(
+            error=ScreeningError(username=username, message=message),
+            rate_limited=True,
+        )
+    except DomainError as exc:
+        return _ProfileOutcome(error=ScreeningError(username=username, message=str(exc)))
+
+    return _ProfileOutcome(profile=profile)
 
 
 def screen_profiles(
@@ -63,39 +103,33 @@ def screen_profiles(
     filters = build_filters(criteria)
     usernames = list(usernames)
 
-    for index, username in enumerate(usernames):
-        try:
-            profile = repository.get_profile(username)
-            if criteria.exclude_env_committers:
-                scan = repository.scan_env_commits(username)
-                if not scan.complete and not scan.found:
-                    raise SecretScanIncompleteError(
-                        "The .env commit scan reached its limit before it could "
-                        "confirm whether this profile is clear."
-                    )
-                profile = replace(profile, has_committed_env_files=scan.found)
-        except RateLimitError as exc:
-            message = str(exc)
-            if exc.reset_at is not None:
-                message += f" Retry after {exc.reset_at.isoformat()}."
-            result.errors.append(ScreeningError(username=username, message=message))
-            result.errors.extend(
-                ScreeningError(
-                    username=skipped_username,
-                    message=(
-                        "Not processed because the GitHub API rate limit was reached."
-                    ),
-                )
-                for skipped_username in usernames[index + 1 :]
+    with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_PROFILES) as executor:
+        for start in range(0, len(usernames), _MAX_CONCURRENT_PROFILES):
+            batch = usernames[start : start + _MAX_CONCURRENT_PROFILES]
+            outcomes = executor.map(
+                lambda username: _fetch_profile(username, criteria, repository), batch
             )
-            break
-        except DomainError as exc:
-            result.errors.append(ScreeningError(username=username, message=str(exc)))
-            continue
+            rate_limited = False
+            for outcome in outcomes:
+                if outcome.error is not None:
+                    result.errors.append(outcome.error)
+                    rate_limited = rate_limited or outcome.rate_limited
+                elif outcome.profile is not None:
+                    if matches_all(outcome.profile, filters):
+                        result.matched_profiles.append(outcome.profile)
+                    else:
+                        result.rejected_profiles.append(outcome.profile)
 
-        if matches_all(profile, filters):
-            result.matched_profiles.append(profile)
-        else:
-            result.rejected_profiles.append(profile)
+            if rate_limited:
+                result.errors.extend(
+                    ScreeningError(
+                        username=username,
+                        message=(
+                            "Not processed because the GitHub API rate limit was reached."
+                        ),
+                    )
+                    for username in usernames[start + len(batch) :]
+                )
+                break
 
     return result
