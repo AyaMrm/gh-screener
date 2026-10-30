@@ -20,10 +20,12 @@ module can still be imported and unit-tested before Part A is merged.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from gh_screener.cli.input_files import InputFileError, read_profile_inputs
 from gh_screener.cli.parser import parse_username
 from gh_screener.domain.criteria import (
     COMMIT_OPTIONS,
@@ -61,12 +63,21 @@ def create_app(
     @app.command()
     def screen(
         inputs: Annotated[
-            list[str],
+            list[str] | None,
             typer.Argument(
-                help="One or more GitHub usernames or profile URLs to screen.",
+                help="GitHub usernames or profile URLs (can be combined with --file).",
                 metavar="USERNAME_OR_URL",
             ),
-        ],
+        ] = None,
+        input_file: Annotated[
+            Path | None,
+            typer.Option(
+                "--file",
+                "-f",
+                help="Read profile identifiers from a .txt or .csv file.",
+                metavar="PATH",
+            ),
+        ] = None,
         commit_contributions: Annotated[
             str | None,
             typer.Option(
@@ -114,10 +125,26 @@ def create_app(
       gh-screener octocat torvalds --commit-contributions active
       gh-screener https://github.com/octocat --languages Python --languages Go
       gh-screener octocat --public-repositories senior-dev
+      gh-screener --file usernames.txt --commit-contributions active
         """
+        raw_inputs = list(inputs or [])
+        if input_file is not None:
+            try:
+                raw_inputs.extend(read_profile_inputs(input_file))
+            except InputFileError as exc:
+                typer.echo(f"Input file error: {exc}", err=True)
+                raise typer.Exit(code=1)
+
+        if not raw_inputs:
+            typer.echo(
+                "Error: provide at least one username or a non-empty --file.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
         usernames: list[str] = []
         input_errors: list[ScreeningError] = []
-        for raw in inputs:
+        for raw in raw_inputs:
             try:
                 usernames.append(parse_username(raw))
             except InvalidProfileError as exc:

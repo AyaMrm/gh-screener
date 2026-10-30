@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from typer.testing import CliRunner
 
 from gh_screener.domain.models import Profile
@@ -97,6 +98,51 @@ def test_screen_accepts_github_url(monkeypatch) -> None:  # type: ignore[no-unty
 
     assert result.exit_code == 0
     assert "octocat" in result.output
+
+
+@pytest.mark.parametrize(
+    ("filename", "contents", "username"),
+    [
+        ("profiles.txt", "# candidates\noctocat\n", "octocat"),
+        ("profiles.csv", "username,note\nAyaMrm,first\n", "AyaMrm"),
+    ],
+)
+def test_screen_reads_profiles_from_file(
+    monkeypatch, tmp_path, filename: str, contents: str, username: str
+) -> None:  # type: ignore[no-untyped-def]
+    input_file = tmp_path / filename
+    input_file.write_text(contents, encoding="utf-8")
+    result = _invoke(
+        monkeypatch,
+        {username: _profile(username)},
+        ["--file", str(input_file)],
+    )
+
+    assert result.exit_code == 0
+    assert "Matched (1):" in result.output
+    assert username in result.output
+
+
+def test_screen_combines_positional_inputs_with_file(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    input_file = tmp_path / "profiles.txt"
+    input_file.write_text("alice\n", encoding="utf-8")
+    result = _invoke(
+        monkeypatch,
+        {"octocat": _profile("octocat"), "alice": _profile("alice")},
+        ["octocat", "--file", str(input_file)],
+    )
+
+    assert result.exit_code == 0
+    assert "octocat" in result.output
+    assert "alice" in result.output
+
+
+def test_invalid_input_file_shows_clear_error(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    input_file = tmp_path / "profiles.xlsx"
+    result = _invoke(monkeypatch, {}, ["--file", str(input_file)])
+
+    assert result.exit_code == 1
+    assert "Supported input file formats are .txt and .csv" in result.output
 
 
 
