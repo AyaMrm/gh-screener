@@ -9,8 +9,8 @@ Data fetched per profile
 ------------------------
 * ``/users/{username}``         → login, followers, following
 * ``/users/{username}/repos``   → non-fork project count and languages
-* ``/users/{username}/events``  → commits_last_12_months (PushEvents in last
-                                   365 days, counted as commits payload sum)
+* ``/graphql``                  → commits_last_12_months (contributions over
+                                   the selected 365-day period)
 
 Rate limits
 -----------
@@ -31,7 +31,12 @@ from pathlib import PurePosixPath
 
 import httpx
 
-from gh_screener.domain.exceptions import DomainError
+from gh_screener.domain.exceptions import (
+    DomainError,
+    GitHubApiError,
+    MalformedGitHubDataError,
+    RateLimitError,
+)
 from gh_screener.domain.models import EnvCommitScanResult, Profile, Repo
 from gh_screener.infra.error import raise_for_status
 from gh_screener.infra.mapper import (
@@ -46,6 +51,15 @@ _TIMEOUT = 10.0
 _SECRET_SCAN_MAX_REPOSITORIES = 20
 _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
 _SECRET_SCAN_MAX_COMMIT_DETAILS = 40
+_COMMIT_CONTRIBUTIONS_QUERY = """
+query($username: String!, $from: DateTime!, $to: DateTime!) {
+  user(login: $username) {
+    contributionsCollection(from: $from, to: $to) {
+      totalCommitContributions
+    }
+  }
+}
+"""
 
 
 class GitHubClient:
@@ -202,50 +216,63 @@ class GitHubClient:
         return repositories
 
     def _get_commits_last_12_months(self, client: httpx.Client, username: str) -> int:
-        """Count commits pushed by *username* in the last 365 days.
+        end = datetime.datetime.now(tz=datetime.UTC)
+        start = end - datetime.timedelta(days=365)
+        response = client.post(
+            "/graphql",
+            json={
+                "query": _COMMIT_CONTRIBUTIONS_QUERY,
+                "variables": {
+                    "username": username,
+                    "from": start.isoformat(),
+                    "to": end.isoformat(),
+                },
+            },
+        )
+        raise_for_status(response, username)
 
-        Uses the public events endpoint (up to 300 events, 10 pages x 30).
-        Each ``PushEvent`` contributes ``size`` commits (distinct commits in
-        that push).  This is an approximation consistent with what the GitHub
-        contribution graph shows for public repositories.
-        """
-        cutoff = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(days=365)
-        total_commits = 0
-        page = 1
-        per_page = 100
-        exhausted = False
-
-        while page <= 10:
-            response = client.get(
-                f"/users/{username}/events/public",
-                params={"per_page": per_page, "page": page},
-            )
-            raise_for_status(response, username)
-            events = response.json()
-            if not events:
-                break
-
-            for event in events:
-                if event.get("type") != "PushEvent":
-                    continue
-                created_at_str = event.get("created_at", "")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise GitHubApiError("GitHub could not return commit contributions.")
+        errors = payload.get("errors")
+        if errors:
+            messages = []
+            if isinstance(errors, list):
+                messages = [
+                    error["message"]
+                    for error in errors
+                    if isinstance(error, dict)
+                    and isinstance(error.get("message"), str)
+                ]
+            if (
+                response.headers.get("x-ratelimit-remaining") == "0"
+                or any("rate limit" in message.casefold() for message in messages)
+            ):
+                raw_reset = response.headers.get("x-ratelimit-reset")
                 try:
-                    created_at = datetime.datetime.fromisoformat(created_at_str)
-                except ValueError:
-                    continue
+                    reset_at = datetime.datetime.fromtimestamp(
+                        int(raw_reset), tz=datetime.UTC
+                    )
+                except (TypeError, ValueError):
+                    reset_at = None
+                raise RateLimitError(reset_at=reset_at)
+            raise GitHubApiError("GitHub could not return commit contributions.")
 
-                if created_at < cutoff:
-                    exhausted = True
-                    break
-
-                payload = event.get("payload", {})
-                total_commits += payload.get("size", 0)
-
-            if exhausted or len(events) < per_page:
-                break
-            page += 1
-
-        return total_commits
+        data = payload.get("data")
+        user = data.get("user") if isinstance(data, dict) else None
+        collection = (
+            user.get("contributionsCollection") if isinstance(user, dict) else None
+        )
+        count = (
+            collection.get("totalCommitContributions")
+            if isinstance(collection, dict)
+            else None
+        )
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise MalformedGitHubDataError(
+                "GitHub returned an invalid commit contribution count."
+            )
+        return count
 
 
 def _is_env_file(filename: object) -> bool:
