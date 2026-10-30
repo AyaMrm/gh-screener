@@ -13,3 +13,6 @@ class ProfileRepository(Protocol):
 
     def scan_env_commits(self, username: str) -> EnvCommitScanResult:
         """Check a bounded sample of commits attributed to a user for .env files."""
+
+    def close(self) -> None:
+        """Release repository resources such as HTTP connection pools."""

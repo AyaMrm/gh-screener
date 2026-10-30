@@ -184,7 +184,7 @@ def test_error_does_not_stop_other_profiles_from_being_processed() -> None:
     assert result.matched_profiles[0].username == "alice"
 
 
-def test_rate_limit_stops_requests_and_marks_remaining_profiles_unprocessed() -> None:
+def test_rate_limit_stops_later_batches_and_marks_them_unprocessed() -> None:
     reset_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
 
     class RateLimitedRepository:
@@ -199,14 +199,17 @@ def test_rate_limit_stops_requests_and_marks_remaining_profiles_unprocessed() ->
 
     repository = RateLimitedRepository()
     result = screen_profiles(
-        ["alice", "bob", "charlie"], build_criteria(), repository
+        ["alice", "bob", "charlie", "dana", "erin"], build_criteria(), repository
     )
 
-    assert repository.profile_calls == ["alice", "bob"]
-    assert [profile.username for profile in result.matched_profiles] == ["alice"]
+    assert set(repository.profile_calls) == {"alice", "bob", "charlie"}
+    assert [profile.username for profile in result.matched_profiles] == [
+        "alice",
+        "charlie",
+    ]
     assert result.errors[0].username == "bob"
     assert reset_at.isoformat() in result.errors[0].message
-    assert result.errors[1].username == "charlie"
+    assert [error.username for error in result.errors[1:]] == ["dana", "erin"]
     assert "Not processed" in result.errors[1].message
 
 

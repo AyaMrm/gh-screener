@@ -145,7 +145,10 @@ def create_app(
             raise typer.Exit(code=1)
 
         typer.echo(f"Screening {len(usernames)} valid profile(s)...\n")
-        result = screening_use_case(usernames, criteria, repository)
+        try:
+            result = screening_use_case(usernames, criteria, repository)
+        finally:
+            repository.close()
         result.errors[:0] = input_errors
 
         _print_section("Matched", result.matched_profiles, lambda p: p.username)

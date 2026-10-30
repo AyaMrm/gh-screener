@@ -53,3 +53,6 @@ class FakeProfileRepository:
             found=profile.has_committed_env_files,
             complete=True,
         )
+
+    def close(self) -> None:
+        """In-memory repositories have no external resources to release."""
