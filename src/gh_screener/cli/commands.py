@@ -34,6 +34,7 @@ from gh_screener.domain.exceptions import (
     InvalidProfileError,
     UnknownCriteriaOptionError,
 )
+from gh_screener.domain.models import ScreeningError
 
 app = typer.Typer(
     name="gh-screener",
@@ -100,12 +101,16 @@ def screen(
     """
 
     usernames: list[str] = []
+    input_errors: list[ScreeningError] = []
     for raw in inputs:
         try:
             usernames.append(parse_username(raw))
         except InvalidProfileError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(code=1)
+            input_errors.append(ScreeningError(username=raw, message=str(exc)))
+
+    if not usernames:
+        _print_error_section(input_errors)
+        raise typer.Exit(code=1)
 
     try:
         criteria = build_criteria(
@@ -128,14 +133,15 @@ def screen(
         typer.echo(f"Configuration error: {exc}", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"Screening {len(usernames)} profile(s)...\n")
+    typer.echo(f"Screening {len(usernames)} valid profile(s)...\n")
     result = screen_profiles(usernames, criteria, repository)
+    result.errors[:0] = input_errors
 
     _print_section("Matched", result.matched_profiles, lambda p: p.username)
     _print_section("Rejected", result.rejected_profiles, lambda p: p.username)
     _print_error_section(result.errors)
 
-    if result.errors:
+    if input_errors or result.errors:
         raise typer.Exit(code=2)
 
 
