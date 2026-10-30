@@ -45,6 +45,7 @@ _BASE_URL = "https://api.github.com"
 _TIMEOUT = 10.0
 _SECRET_SCAN_MAX_REPOSITORIES = 20
 _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
+_SECRET_SCAN_MAX_COMMIT_DETAILS = 40
 
 
 class GitHubClient:
@@ -101,6 +102,7 @@ class GitHubClient:
         repositories = repos_from_github(response.json())
 
         complete = len(repositories) <= _SECRET_SCAN_MAX_REPOSITORIES
+        inspected_commit_details = 0
         for repository in repositories[:_SECRET_SCAN_MAX_REPOSITORIES]:
             name = repository.name
 
@@ -134,12 +136,16 @@ class GitHubClient:
                 if not isinstance(sha, str) or not sha:
                     raise DomainError("GitHub returned a commit without a valid SHA.")
 
+                if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
+                    return EnvCommitScanResult(found=False, complete=False)
+
                 detail_response = client.get(f"/repos/{username}/{name}/commits/{sha}")
                 raise_for_status(detail_response, username)
                 detail = detail_response.json()
                 files = detail.get("files") if isinstance(detail, dict) else None
                 if not isinstance(files, list):
                     raise DomainError("GitHub returned commit details without a file list.")
+                inspected_commit_details += 1
 
                 if any(
                     _is_env_file(file.get("filename"))
@@ -147,6 +153,8 @@ class GitHubClient:
                     if isinstance(file, dict)
                 ):
                     return EnvCommitScanResult(found=True, complete=True)
+                if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
+                    return EnvCommitScanResult(found=False, complete=False)
                 if "next" in detail_response.links:
                     complete = False
 
