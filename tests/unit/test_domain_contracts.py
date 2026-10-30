@@ -14,16 +14,16 @@ from gh_screener.domain.models import Profile
 class MinimumCommitsFilter(Filter):
     @property
     def requires(self) -> frozenset[str]:
-        return frozenset({"commits_last_12_months"})
+        return frozenset({"commit_contributions_last_12_months"})
 
     def matches(self, profile: Profile) -> bool:
-        return profile.commits_last_12_months >= 10
+        return profile.commit_contributions_last_12_months >= 10
 
 
 def test_screening_criteria_is_available_from_criteria_module() -> None:
-    criteria = ScreeningCriteria(minimum_commits_last_12_months=10)
+    criteria = ScreeningCriteria(minimum_commit_contributions_last_12_months=10)
 
-    assert criteria.minimum_commits_last_12_months == 10
+    assert criteria.minimum_commit_contributions_last_12_months == 10
     assert not criteria.is_empty
 
 
@@ -47,13 +47,13 @@ def test_predefined_options_are_kept_in_one_place() -> None:
 
 def test_build_criteria_translates_selected_options() -> None:
     criteria = build_criteria(
-        commits="low",
+        commit_contributions="low",
         languages=[" Python ", "Go"],
         public_repositories="senior-dev",
     )
 
-    assert criteria.minimum_commits_last_12_months is None
-    assert criteria.maximum_commits_last_12_months == 49
+    assert criteria.minimum_commit_contributions_last_12_months is None
+    assert criteria.maximum_commit_contributions_last_12_months == 49
     assert criteria.preferred_languages == frozenset({"Python", "Go"})
     assert criteria.minimum_public_repositories == 20
 
@@ -61,7 +61,7 @@ def test_build_criteria_translates_selected_options() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "option_name"),
     [
-        ({"commits": "unknown"}, "commits"),
+        ({"commit_contributions": "unknown"}, "commit contributions"),
         ({"public_repositories": "unknown"}, "public repositories"),
     ],
 )
@@ -76,15 +76,15 @@ def test_unknown_option_gives_a_clear_error(
 
 
 def test_filter_declares_required_profile_data() -> None:
-    profile = Profile(username="octocat", commits_last_12_months=10)
+    profile = Profile(username="octocat", commit_contributions_last_12_months=10)
     current_filter = MinimumCommitsFilter()
 
-    assert current_filter.requires == frozenset({"commits_last_12_months"})
+    assert current_filter.requires == frozenset({"commit_contributions_last_12_months"})
     assert matches_all(profile, [current_filter])
 
 
 def test_matches_all_requires_every_filter_to_match() -> None:
-    profile = Profile(username="octocat", commits_last_12_months=9)
+    profile = Profile(username="octocat", commit_contributions_last_12_months=9)
     current_filter = MinimumCommitsFilter()
 
     assert not matches_all(profile, [current_filter])

@@ -61,7 +61,7 @@ def username_from_github(raw_user: Any) -> str:
 def build_profile(
     username: str,
     repos: list[Repo],
-    commits: int = 0,
+    commit_contributions: int = 0,
     followers: int = 0,
     following: int = 0,
 ) -> Profile:
@@ -76,7 +76,7 @@ def build_profile(
         repository_languages=frozenset(
             repo.language for repo in non_fork_public_repos if repo.language
         ),
-        commits_last_12_months=commits,
+        commit_contributions_last_12_months=commit_contributions,
     )
 
 

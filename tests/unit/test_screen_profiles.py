@@ -59,24 +59,24 @@ def test_secret_filter_only_scans_and_rejects_when_requested() -> None:
 # ---------------------------------------------------------------------------
 
 def test_profile_with_enough_commits_is_matched() -> None:
-    repo = FakeProfileRepository({"octocat": _profile("octocat", commits_last_12_months=100)})
-    result = screen_profiles(["octocat"], build_criteria(commits="active"), repo)
+    repo = FakeProfileRepository({"octocat": _profile("octocat", commit_contributions_last_12_months=100)})
+    result = screen_profiles(["octocat"], build_criteria(commit_contributions="active"), repo)
 
     assert result.matched_profiles[0].username == "octocat"
     assert result.rejected_profiles == []
 
 
 def test_profile_with_too_few_commits_is_rejected() -> None:
-    repo = FakeProfileRepository({"octocat": _profile("octocat", commits_last_12_months=10)})
-    result = screen_profiles(["octocat"], build_criteria(commits="active"), repo)
+    repo = FakeProfileRepository({"octocat": _profile("octocat", commit_contributions_last_12_months=10)})
+    result = screen_profiles(["octocat"], build_criteria(commit_contributions="active"), repo)
 
     assert result.rejected_profiles[0].username == "octocat"
     assert result.matched_profiles == []
 
 
 def test_low_commits_criterion_rejects_high_commit_profile() -> None:
-    repo = FakeProfileRepository({"octocat": _profile("octocat", commits_last_12_months=100)})
-    result = screen_profiles(["octocat"], build_criteria(commits="low"), repo)
+    repo = FakeProfileRepository({"octocat": _profile("octocat", commit_contributions_last_12_months=100)})
+    result = screen_profiles(["octocat"], build_criteria(commit_contributions="low"), repo)
 
     assert result.rejected_profiles[0].username == "octocat"
 
@@ -147,13 +147,13 @@ def test_profile_must_meet_all_criteria_to_be_matched() -> None:
     repo = FakeProfileRepository({
         "dev": _profile(
             "dev",
-            commits_last_12_months=10,
+            commit_contributions_last_12_months=10,
             repository_languages=frozenset({"Python"}),
         )
     })
     result = screen_profiles(
         ["dev"],
-        build_criteria(commits="active", languages=["Python"]),
+        build_criteria(commit_contributions="active", languages=["Python"]),
         repo,
     )
 
@@ -174,10 +174,10 @@ def test_unknown_username_produces_error_not_crash() -> None:
 
 
 def test_error_does_not_stop_other_profiles_from_being_processed() -> None:
-    repo = FakeProfileRepository({"alice": _profile("alice", commits_last_12_months=200)})
+    repo = FakeProfileRepository({"alice": _profile("alice", commit_contributions_last_12_months=200)})
     # "ghost" doesn't exist but "alice" should still be matched.
     result = screen_profiles(
-        ["ghost", "alice"], build_criteria(commits="active"), repo
+        ["ghost", "alice"], build_criteria(commit_contributions="active"), repo
     )
 
     assert result.errors[0].username == "ghost"
@@ -212,11 +212,11 @@ def test_rate_limit_stops_requests_and_marks_remaining_profiles_unprocessed() ->
 
 def test_multiple_profiles_are_bucketed_independently() -> None:
     repo = FakeProfileRepository({
-        "high": _profile("high", commits_last_12_months=500),
-        "low": _profile("low", commits_last_12_months=1),
+        "high": _profile("high", commit_contributions_last_12_months=500),
+        "low": _profile("low", commit_contributions_last_12_months=1),
     })
     result = screen_profiles(
-        ["high", "low"], build_criteria(commits="active"), repo
+        ["high", "low"], build_criteria(commit_contributions="active"), repo
     )
 
     assert [p.username for p in result.matched_profiles] == ["high"]

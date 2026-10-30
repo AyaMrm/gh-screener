@@ -28,12 +28,12 @@ def test_secret_filter_is_only_built_when_requested():
 @pytest.mark.parametrize(
     ("criteria","expected_count"),
     [
-        (build_criteria(commits="active"), 1),
+        (build_criteria(commit_contributions="active"), 1),
         (build_criteria(public_repositories="senior-dev"), 1),
         (build_criteria(languages=["Python"]),1),
         (
             build_criteria(
-                commits="active",
+                commit_contributions="active",
                 public_repositories="senior-dev",
                 languages=["Python"],
             ),
@@ -49,11 +49,11 @@ def test_build_filters_returns_one_filter_per_selected_criterion(
     assert len(filters)==expected_count
 
 def test_commit_filter_matches_profile():
-    criteria=build_criteria(commits="active")
+    criteria=build_criteria(commit_contributions="active")
     filters=build_filters(criteria)
     profile=Profile(
         username="test_user",
-        commits_last_12_months=100,
+        commit_contributions_last_12_months=100,
     )
     assert filters[0].matches(profile) is True
 
@@ -86,7 +86,7 @@ def test_stack_filter_matches_profile_when_language_missing():
 
 def test_filters_expose_required_fields():
     criteria=build_criteria(
-        commits="active",
+        commit_contributions="active",
         public_repositories="senior-dev",
         languages=["Python"],
     )
@@ -96,7 +96,7 @@ def test_filters_expose_required_fields():
 
     )
     assert required_filters=={
-        "commits_last_12_months",
+        "commit_contributions_last_12_months",
         "public_repositories",
         "repository_languages"
     }

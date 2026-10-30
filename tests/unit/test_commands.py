@@ -49,7 +49,7 @@ def test_screen_prints_matched_username(monkeypatch) -> None:  # type: ignore[no
 def test_screen_shows_matched_section(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     result = _invoke(
         monkeypatch,
-        {"alice": _profile("alice", commits_last_12_months=100)},
+        {"alice": _profile("alice", commit_contributions_last_12_months=100)},
         ["alice", "--commits", "active"],
     )
 
@@ -61,7 +61,7 @@ def test_screen_shows_matched_section(monkeypatch) -> None:  # type: ignore[no-u
 def test_screen_shows_rejected_section(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     result = _invoke(
         monkeypatch,
-        {"bob": _profile("bob", commits_last_12_months=5)},
+        {"bob": _profile("bob", commit_contributions_last_12_months=5)},
         ["bob", "--commits", "active"],
     )
 
@@ -75,8 +75,8 @@ def test_screen_shows_rejected_section(monkeypatch) -> None:  # type: ignore[no-
 
 def test_screen_multiple_usernames(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     profiles = {
-        "alice": _profile("alice", commits_last_12_months=200),
-        "bob": _profile("bob", commits_last_12_months=10),
+        "alice": _profile("alice", commit_contributions_last_12_months=200),
+        "bob": _profile("bob", commit_contributions_last_12_months=10),
     }
     result = _invoke(monkeypatch, profiles, ["alice", "bob", "--commits", "active"])
 
@@ -105,6 +105,19 @@ def test_invalid_username_exits_with_code_1(monkeypatch) -> None:  # type: ignor
     assert result.exit_code == 1
 
 
+def test_invalid_username_does_not_block_valid_username(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    result = _invoke(
+        monkeypatch,
+        {"octocat": _profile("octocat")},
+        ["not a url or username!", "octocat"],
+    )
+
+    assert result.exit_code == 2
+    assert "octocat" in result.output
+    assert "Errors (1)" in result.output
+    assert "not a url or username!" in result.output
+
+
 def test_unknown_commit_option_exits_with_code_1(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     result = _invoke(
         monkeypatch,
@@ -126,7 +139,7 @@ def test_unknown_user_produces_error_and_exit_code_2(monkeypatch) -> None:  # ty
 
 
 def test_error_does_not_block_other_users(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    profiles = {"alice": _profile("alice", commits_last_12_months=100)}
+    profiles = {"alice": _profile("alice", commit_contributions_last_12_months=100)}
     # "ghost" is not in the repo → error; "alice" should still appear matched.
     result = _invoke(
         monkeypatch,

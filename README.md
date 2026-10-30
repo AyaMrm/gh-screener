@@ -68,20 +68,22 @@ one place: `src/gh_screener/domain/criteria.py`. The application should use
 `build_criteria()` instead of duplicating these values in the CLI or GitHub
 client.
 
-### Commits in the last 12 months
+### GitHub-recognized commit contributions in the last 12 months
 
 | Option | Requirement |
 | --- | --- |
-| `low` | fewer than 50 commits |
-| `active` | 50 or more commits |
-| `highly-active` | 200 or more commits |
-| `very-active` | 500 or more commits |
-| `legendary` | 2,000 or more commits |
+| `low` | fewer than 50 commit contributions |
+| `active` | 50 or more commit contributions |
+| `highly-active` | 200 or more commit contributions |
+| `very-active` | 500 or more commit contributions |
+| `legendary` | 2,000 or more commit contributions |
 
-Commit options are minimum or maximum thresholds. For example, `active`
-matches profiles with at least 50 commits, while `legendary` matches profiles
-with at least 2,000 commits. The options intentionally overlap: a legendary
-profile also meets the very-active and active thresholds.
+The `--commit-contributions` filter uses the count returned by GitHub's
+contributions API over a rolling 365-day period. It follows GitHub's rules for
+attributing contributions and may differ from a count of every raw Git commit.
+For example, `active` matches profiles with at least 50 contributions, while
+`legendary` matches profiles with at least 2,000. The options intentionally
+overlap: a legendary profile also meets the very-active and active thresholds.
 
 ### Public repositories
 

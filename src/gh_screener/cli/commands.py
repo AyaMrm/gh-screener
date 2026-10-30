@@ -55,11 +55,15 @@ def screen(
             metavar="USERNAME_OR_URL",
         ),
     ],
-    commits: Annotated[
+    commit_contributions: Annotated[
         str | None,
         typer.Option(
+            "--commit-contributions",
             "--commits",
-            help=f"Commit activity filter. Choices: {_COMMIT_CHOICES}.",
+            help=(
+                "GitHub-recognized commit contribution filter over the last 365 days. "
+                f"Choices: {_COMMIT_CHOICES}."
+            ),
             metavar="LEVEL",
         ),
     ] = None,
@@ -95,7 +99,7 @@ def screen(
     \b
     Examples
     --------
-      gh-screener screen octocat torvalds --commits active
+      gh-screener screen octocat torvalds --commit-contributions active
       gh-screener screen https://github.com/octocat --languages Python --languages Go
       gh-screener screen octocat --public-repositories senior-dev
     """
@@ -114,7 +118,7 @@ def screen(
 
     try:
         criteria = build_criteria(
-            commits=commits,
+            commit_contributions=commit_contributions,
             languages=languages or [],
             public_repositories=public_repositories,
             exclude_env_committers=exclude_env_committers,

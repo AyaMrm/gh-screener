@@ -196,7 +196,7 @@ def test_get_profile_counts_commit_contributions() -> None:
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.commits_last_12_months == 5
+    assert profile.commit_contributions_last_12_months == 5
 
 
 def test_null_language_repos_are_excluded() -> None:
@@ -242,7 +242,7 @@ def test_zero_contributions_gives_zero_commits() -> None:
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.commits_last_12_months == 0
+    assert profile.commit_contributions_last_12_months == 0
 
 
 # ---------------------------------------------------------------------------
@@ -321,15 +321,18 @@ def test_rate_limit_error_raises_domain_error() -> None:
 
 def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
     routes = {
-        "/repos/octocat/demo/commits/abc123": _make_response(200, {
+        "/search/commits": _make_response(200, {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "sha": "abc123",
+                "author": {"login": "octocat"},
+                "repository": {"full_name": "other-owner/demo"},
+            }],
+        }),
+        "/repos/other-owner/demo/commits/abc123": _make_response(200, {
             "files": [{"filename": "config/.env.production"}],
         }),
-        "/repos/octocat/demo/commits": _make_response(200, [
-            {"sha": "abc123", "author": {"login": "octocat"}},
-        ]),
-        "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False, "private": False},
-        ]),
     }
     client = GitHubClient(token="fake-token")
 
@@ -340,12 +343,15 @@ def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
 
 def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
     routes = {
-        "/repos/octocat/demo/commits": _make_response(200, [
-            {"sha": "abc123", "author": {"login": "other-user"}},
-        ]),
-        "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False, "private": False},
-        ]),
+        "/search/commits": _make_response(200, {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "sha": "abc123",
+                "author": {"login": "other-user"},
+                "repository": {"full_name": "other-owner/demo"},
+            }],
+        }),
     }
     client = GitHubClient(token="fake-token")
 
@@ -355,12 +361,46 @@ def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
     assert result.complete is True
 
 
+def test_env_commit_scan_reports_incomplete_when_result_exceeds_limit() -> None:
+    items = [
+        {
+            "sha": f"sha-{index}",
+            "author": {"login": "octocat"},
+            "repository": {"full_name": "other-owner/demo"},
+        }
+        for index in range(41)
+    ]
+    routes = {
+        "/search/commits": _make_response(200, {
+            "total_count": 41,
+            "incomplete_results": False,
+            "items": items,
+        }),
+        "/repos/other-owner/demo/commits/": _make_response(200, {"files": []}),
+    }
+
+    result = _patched_scan_env_commits(
+        GitHubClient(token="fake-token"), "octocat", routes
+    )
+
+    assert result.found is False
+    assert result.complete is False
+
+
 def test_missing_repository_during_scan_is_not_reported_as_missing_user() -> None:
     routes = {
-        "/repos/octocat/demo/commits": _make_response(404, {"message": "Not Found"}),
-        "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False, "private": False},
-        ]),
+        "/search/commits": _make_response(200, {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "sha": "abc123",
+                "author": {"login": "octocat"},
+                "repository": {"full_name": "other-owner/demo"},
+            }],
+        }),
+        "/repos/other-owner/demo/commits/abc123": _make_response(
+            404, {"message": "Not Found"}
+        ),
     }
 
     with pytest.raises(GitHubApiError):

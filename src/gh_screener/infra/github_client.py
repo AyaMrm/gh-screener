@@ -9,8 +9,8 @@ Data fetched per profile
 ------------------------
 * ``/users/{username}``         → login, followers, following
 * ``/users/{username}/repos``   → public repository count and languages
-* ``/graphql``                  → commits_last_12_months (contributions over
-                                   the selected 365-day period)
+* ``/graphql``                  → GitHub-recognized commit contributions over the
+                                   selected 365-day period
 
 Rate limits
 -----------
@@ -49,8 +49,6 @@ from gh_screener.infra.mapper import (
 
 _BASE_URL = "https://api.github.com"
 _TIMEOUT = 10.0
-_SECRET_SCAN_MAX_REPOSITORIES = 20
-_SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
 _SECRET_SCAN_MAX_COMMIT_DETAILS = 40
 _ENV_TEMPLATE_MARKERS = frozenset(
     {"default", "defaults", "dist", "example", "sample", "template"}
@@ -123,93 +121,96 @@ class GitHubClient:
         response = self._request(
             client,
             "GET",
-            f"/users/{username}/repos",
+            "/search/commits",
             params={
-                "per_page": _SECRET_SCAN_MAX_REPOSITORIES + 1,
+                "q": f"author:{username} is:public",
+                "per_page": _SECRET_SCAN_MAX_COMMIT_DETAILS + 1,
                 "page": 1,
-                "type": "owner",
-                "sort": "updated",
+                "sort": "author-date",
                 "direction": "desc",
             },
         )
         raise_for_status(response, username)
-        repositories = repos_from_github(response.json())
+        search_result = response.json()
+        if not isinstance(search_result, dict):
+            raise DomainError("GitHub returned an invalid commit search result.")
 
-        complete = len(repositories) <= _SECRET_SCAN_MAX_REPOSITORIES
-        inspected_commit_details = 0
-        for repository in repositories[:_SECRET_SCAN_MAX_REPOSITORIES]:
-            name = repository.name
+        total_count = search_result.get("total_count")
+        items = search_result.get("items")
+        incomplete_results = search_result.get("incomplete_results")
+        if (
+            not isinstance(total_count, int)
+            or isinstance(total_count, bool)
+            or total_count < 0
+            or not isinstance(items, list)
+            or not isinstance(incomplete_results, bool)
+        ):
+            raise DomainError("GitHub returned an invalid commit search result.")
 
-            commits_response = self._request(
+        complete = (
+            total_count <= _SECRET_SCAN_MAX_COMMIT_DETAILS
+            and len(items) <= _SECRET_SCAN_MAX_COMMIT_DETAILS
+            and not incomplete_results
+        )
+        for commit in items[:_SECRET_SCAN_MAX_COMMIT_DETAILS]:
+            if not isinstance(commit, dict):
+                raise DomainError("GitHub returned an invalid commit record.")
+            author = commit.get("author")
+            author_login = author.get("login") if isinstance(author, dict) else None
+            if (
+                not isinstance(author_login, str)
+                or author_login.casefold() != username.casefold()
+            ):
+                continue
+
+            sha = commit.get("sha")
+            repository = commit.get("repository")
+            full_name = (
+                repository.get("full_name") if isinstance(repository, dict) else None
+            )
+            if not isinstance(sha, str) or not sha:
+                raise DomainError("GitHub returned a commit without a valid SHA.")
+            if (
+                not isinstance(full_name, str)
+                or len(full_name.split("/")) != 2
+                or not all(full_name.split("/"))
+            ):
+                raise DomainError("GitHub returned a commit without a valid repository.")
+
+            detail_response = self._request(
                 client,
                 "GET",
-                f"/repos/{username}/{name}/commits",
-                params={
-                    "author": username,
-                    "per_page": _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY + 1,
-                    "page": 1,
-                },
+                f"/repos/{full_name}/commits/{sha}",
             )
-            raise_for_status(commits_response, username)
-            commits = commits_response.json()
-            if not isinstance(commits, list):
-                raise DomainError("GitHub returned an invalid commit list.")
+            raise_for_status(detail_response, username)
+            detail = detail_response.json()
+            files = detail.get("files") if isinstance(detail, dict) else None
+            if not isinstance(files, list):
+                raise DomainError("GitHub returned commit details without a file list.")
 
-            if len(commits) > _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY:
+            if any(
+                _is_env_file(file.get("filename"))
+                for file in files
+                if isinstance(file, dict)
+            ):
+                return EnvCommitScanResult(found=True, complete=True)
+            if "next" in detail_response.links:
                 complete = False
-
-            for commit in commits[:_SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY]:
-                if not isinstance(commit, dict):
-                    raise DomainError("GitHub returned an invalid commit record.")
-                author = commit.get("author")
-                author_login = author.get("login") if isinstance(author, dict) else None
-                if (
-                    not isinstance(author_login, str)
-                    or author_login.casefold() != username.casefold()
-                ):
-                    continue
-                sha = commit.get("sha")
-                if not isinstance(sha, str) or not sha:
-                    raise DomainError("GitHub returned a commit without a valid SHA.")
-
-                if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
-                    return EnvCommitScanResult(found=False, complete=False)
-
-                detail_response = self._request(
-                    client,
-                    "GET",
-                    f"/repos/{username}/{name}/commits/{sha}",
-                )
-                raise_for_status(detail_response, username)
-                detail = detail_response.json()
-                files = detail.get("files") if isinstance(detail, dict) else None
-                if not isinstance(files, list):
-                    raise DomainError("GitHub returned commit details without a file list.")
-                inspected_commit_details += 1
-
-                if any(
-                    _is_env_file(file.get("filename"))
-                    for file in files
-                    if isinstance(file, dict)
-                ):
-                    return EnvCommitScanResult(found=True, complete=True)
-                if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
-                    return EnvCommitScanResult(found=False, complete=False)
-                if "next" in detail_response.links:
-                    complete = False
 
         return EnvCommitScanResult(found=False, complete=complete)
 
     def _fetch_profile(self, client: httpx.Client, username: str) -> Profile:
         user_data = self._get_user(client, username)
         repositories = self._get_repositories(client, username)
-        commits = self._get_commits_last_12_months(client, username)
+        commit_contributions = self._get_commit_contributions_last_12_months(
+            client, username
+        )
         followers, following = follow_counts_from_github(user_data)
 
         return build_profile(
             username=username_from_github(user_data),
             repos=repositories,
-            commits=commits,
+            commit_contributions=commit_contributions,
             followers=followers,
             following=following,
         )
@@ -243,7 +244,9 @@ class GitHubClient:
 
         return repositories
 
-    def _get_commits_last_12_months(self, client: httpx.Client, username: str) -> int:
+    def _get_commit_contributions_last_12_months(
+        self, client: httpx.Client, username: str
+    ) -> int:
         end = datetime.datetime.now(tz=datetime.UTC)
         start = end - datetime.timedelta(days=365)
         response = self._request(

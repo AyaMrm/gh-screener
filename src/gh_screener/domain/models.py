@@ -8,14 +8,14 @@ class Profile:
     followers: int = 0
     following: int = 0
     repository_languages: frozenset[str] = field(default_factory=frozenset)
-    commits_last_12_months: int = 0
+    commit_contributions_last_12_months: int = 0
     has_committed_env_files: bool = False
 
 
 @dataclass(frozen=True)
 class ScreeningCriteria:
-    minimum_commits_last_12_months: int | None = None
-    maximum_commits_last_12_months: int | None = None
+    minimum_commit_contributions_last_12_months: int | None = None
+    maximum_commit_contributions_last_12_months: int | None = None
     preferred_languages: frozenset[str] = field(default_factory=frozenset)
     minimum_public_repositories: int | None = None
     exclude_env_committers: bool = False
@@ -23,8 +23,8 @@ class ScreeningCriteria:
     @property
     def is_empty(self) -> bool:
         return (
-            self.minimum_commits_last_12_months is None
-            and self.maximum_commits_last_12_months is None
+            self.minimum_commit_contributions_last_12_months is None
+            and self.maximum_commit_contributions_last_12_months is None
             and not self.preferred_languages
             and self.minimum_public_repositories is None
             and not self.exclude_env_committers

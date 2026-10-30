@@ -22,12 +22,14 @@ OptionValue = TypeVar("OptionValue")
 
 def build_criteria(
     *,
-    commits: str | None = None,
+    commit_contributions: str | None = None,
     languages: Iterable[str] = (),
     public_repositories: str | None = None,
     exclude_env_committers: bool = False,
 ) -> ScreeningCriteria:
-    commit_values = _get_option(COMMIT_OPTIONS, commits, "commits")
+    commit_values = _get_option(
+        COMMIT_OPTIONS, commit_contributions, "commit contributions"
+    )
     repository_minimum = _get_option(
         PUBLIC_REPOSITORY_OPTIONS,
         public_repositories,
@@ -38,10 +40,10 @@ def build_criteria(
     )
 
     return ScreeningCriteria(
-        minimum_commits_last_12_months=(
+        minimum_commit_contributions_last_12_months=(
             commit_values.get("minimum") if commit_values is not None else None
         ),
-        maximum_commits_last_12_months=(
+        maximum_commit_contributions_last_12_months=(
             commit_values.get("maximum") if commit_values is not None else None
         ),
         preferred_languages=selected_languages,
