@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Iterable
 from pathlib import PurePosixPath
+from typing import Any
 
 import httpx
 
@@ -79,6 +80,20 @@ class GitHubClient:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
+    def _request(
+        self,
+        client: httpx.Client,
+        method: str,
+        url: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        try:
+            return client.request(method, url, **kwargs)
+        except httpx.RequestError as exc:
+            raise GitHubApiError(
+                "Could not connect to the GitHub API. Check your network and retry."
+            ) from exc
+
     def get_profile(self, username: str) -> Profile:
         """Fetch a single profile and return a normalised :class:`Profile`."""
         with httpx.Client(
@@ -102,7 +117,9 @@ class GitHubClient:
     def _scan_env_commits(
         self, client: httpx.Client, username: str
     ) -> EnvCommitScanResult:
-        response = client.get(
+        response = self._request(
+            client,
+            "GET",
             f"/users/{username}/repos",
             params={
                 "per_page": _SECRET_SCAN_MAX_REPOSITORIES + 1,
@@ -120,7 +137,9 @@ class GitHubClient:
         for repository in repositories[:_SECRET_SCAN_MAX_REPOSITORIES]:
             name = repository.name
 
-            commits_response = client.get(
+            commits_response = self._request(
+                client,
+                "GET",
                 f"/repos/{username}/{name}/commits",
                 params={
                     "author": username,
@@ -153,7 +172,11 @@ class GitHubClient:
                 if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
                     return EnvCommitScanResult(found=False, complete=False)
 
-                detail_response = client.get(f"/repos/{username}/{name}/commits/{sha}")
+                detail_response = self._request(
+                    client,
+                    "GET",
+                    f"/repos/{username}/{name}/commits/{sha}",
+                )
                 raise_for_status(detail_response, username)
                 detail = detail_response.json()
                 files = detail.get("files") if isinstance(detail, dict) else None
@@ -189,7 +212,7 @@ class GitHubClient:
         )
 
     def _get_user(self, client: httpx.Client, username: str) -> dict:
-        response = client.get(f"/users/{username}")
+        response = self._request(client, "GET", f"/users/{username}")
         raise_for_status(response, username, is_user_lookup=True)
         return response.json()
 
@@ -200,7 +223,9 @@ class GitHubClient:
         per_page = 100
 
         while True:
-            response = client.get(
+            response = self._request(
+                client,
+                "GET",
                 f"/users/{username}/repos",
                 params={"per_page": per_page, "page": page, "type": "owner"},
             )
@@ -218,7 +243,9 @@ class GitHubClient:
     def _get_commits_last_12_months(self, client: httpx.Client, username: str) -> int:
         end = datetime.datetime.now(tz=datetime.UTC)
         start = end - datetime.timedelta(days=365)
-        response = client.post(
+        response = self._request(
+            client,
+            "POST",
             "/graphql",
             json={
                 "query": _COMMIT_CONTRIBUTIONS_QUERY,
