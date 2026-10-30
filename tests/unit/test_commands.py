@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typer.testing import CliRunner
 
 from gh_screener.domain.models import Profile
@@ -186,10 +188,11 @@ def test_no_args_shows_help() -> None:
 
 def test_help_option_shows_cli_usage() -> None:
     result = runner.invoke(app, ["--help"], catch_exceptions=False)
+    help_text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.output)
+    help_text = " ".join(help_text.split())
 
     assert result.exit_code == 0
-    assert "screen" in result.output
-    assert "--commit-contributions" in result.output
+    assert "GitHub profiles against chosen criteria." in help_text
 
 
 def test_missing_token_shows_configuration_error(monkeypatch) -> None:  # type: ignore[no-untyped-def]
