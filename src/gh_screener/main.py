@@ -1,16 +1,23 @@
-"""Entry point for the gh-screener CLI tool.
+"""Application entry point: assemble the CLI, use case, and GitHub client."""
 
-Declared in pyproject.toml as:
-    [project.scripts]
-    gh-screener = "gh_screener.main:app"
+from __future__ import annotations
 
-This module assembles the application: it imports the Typer app from the CLI
-layer and exposes it as ``app`` so the console script can find it.
-"""
+from gh_screener.application.screen_profiles import screen_profiles
+from gh_screener.cli.commands import create_app
+from gh_screener.domain.ports import ProfileRepository
 
-from gh_screener.cli.commands import app
 
-__all__ = ["app"]
+def _repository_factory() -> ProfileRepository:
+    """Build the GitHub adapter only when a screening command is run."""
+    # Keep the concrete infrastructure dependency at the composition root.
+    from gh_screener.config import get_github_token
+    from gh_screener.infra.github_client import GitHubClient
+
+    return GitHubClient(get_github_token())
+
+
+app = create_app(screen_profiles, _repository_factory)
+
 
 if __name__ == "__main__":
     app()
