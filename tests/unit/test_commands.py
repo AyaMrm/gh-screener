@@ -182,3 +182,25 @@ def test_no_args_shows_help() -> None:
         word in result.output.lower()
         for word in ("screen", "usage", "gh-screener", "username")
     )
+
+
+def test_help_option_shows_cli_usage() -> None:
+    result = runner.invoke(app, ["--help"], catch_exceptions=False)
+
+    assert result.exit_code == 0
+    assert "screen" in result.output
+    assert "--commit-contributions" in result.output
+
+
+def test_missing_token_shows_configuration_error(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import gh_screener.config as config_module
+
+    def missing_token() -> str:
+        raise RuntimeError("GITHUB_TOKEN is not set. Configure it before screening.")
+
+    monkeypatch.setattr(config_module, "get_github_token", missing_token)
+    result = runner.invoke(app, ["octocat"], catch_exceptions=False)
+
+    assert result.exit_code == 1
+    assert "Configuration error: GITHUB_TOKEN is not set" in result.output
+    assert "Traceback" not in result.output

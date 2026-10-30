@@ -19,11 +19,11 @@ module can still be imported and unit-tested before Part A is merged.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from typing import Annotated
 
 import typer
 
-from gh_screener.application.screen_profiles import screen_profiles
 from gh_screener.cli.parser import parse_username
 from gh_screener.domain.criteria import (
     COMMIT_OPTIONS,
@@ -34,119 +34,128 @@ from gh_screener.domain.exceptions import (
     InvalidProfileError,
     UnknownCriteriaOptionError,
 )
-from gh_screener.domain.models import ScreeningError
-
-app = typer.Typer(
-    name="gh-screener",
-    help="Screen GitHub profiles against chosen criteria.",
-    no_args_is_help=True,
+from gh_screener.domain.models import (
+    ScreeningCriteria,
+    ScreeningError,
+    ScreeningResult,
 )
+from gh_screener.domain.ports import ProfileRepository
 
 _COMMIT_CHOICES = ", ".join(COMMIT_OPTIONS)
 _PROJECT_CHOICES = ", ".join(PUBLIC_REPOSITORY_OPTIONS)
 
 
-@app.command()
-def screen(
-    inputs: Annotated[
-        list[str],
-        typer.Argument(
-            help="One or more GitHub usernames or profile URLs to screen.",
-            metavar="USERNAME_OR_URL",
-        ),
+def create_app(
+    screening_use_case: Callable[
+        [Iterable[str], ScreeningCriteria, ProfileRepository], ScreeningResult
     ],
-    commit_contributions: Annotated[
-        str | None,
-        typer.Option(
-            "--commit-contributions",
-            "--commits",
-            help=(
-                "GitHub-recognized commit contribution filter over the last 365 days. "
-                f"Choices: {_COMMIT_CHOICES}."
+    repository_factory: Callable[[], ProfileRepository],
+) -> typer.Typer:
+    """Build the CLI around the use case and repository supplied by main."""
+    app = typer.Typer(
+        name="gh-screener",
+        help="Screen GitHub profiles against chosen criteria.",
+        no_args_is_help=True,
+    )
+
+    @app.command()
+    def screen(
+        inputs: Annotated[
+            list[str],
+            typer.Argument(
+                help="One or more GitHub usernames or profile URLs to screen.",
+                metavar="USERNAME_OR_URL",
             ),
-            metavar="LEVEL",
-        ),
-    ] = None,
-    languages: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--languages",
-            help=(
-                "Required programming language (repeat the flag for multiple). "
-                "Example: --languages Python --languages Go"
+        ],
+        commit_contributions: Annotated[
+            str | None,
+            typer.Option(
+                "--commit-contributions",
+                "--commits",
+                help=(
+                    "GitHub-recognized commit contribution filter over the last 365 days. "
+                    f"Choices: {_COMMIT_CHOICES}."
+                ),
+                metavar="LEVEL",
             ),
-            metavar="LANG",
-        ),
-    ] = None,
-    public_repositories: Annotated[
-        str | None,
-        typer.Option(
-            "--public-repositories",
-            help=f"Public repository filter. Choices: {_PROJECT_CHOICES}.",
-            metavar="LEVEL",
-        ),
-    ] = None,
-    exclude_env_committers: Annotated[
-        bool,
-        typer.Option(
-            "--exclude-env-committers",
-            help="Reject profiles that have committed .env files.",
-        ),
-    ] = False,
-) -> None:
-    """Screen one or more GitHub profiles against chosen criteria.
+        ] = None,
+        languages: Annotated[
+            list[str] | None,
+            typer.Option(
+                "--languages",
+                help=(
+                    "Required programming language (repeat the flag for multiple). "
+                    "Example: --languages Python --languages Go"
+                ),
+                metavar="LANG",
+            ),
+        ] = None,
+        public_repositories: Annotated[
+            str | None,
+            typer.Option(
+                "--public-repositories",
+                help=f"Public repository filter. Choices: {_PROJECT_CHOICES}.",
+                metavar="LEVEL",
+            ),
+        ] = None,
+        exclude_env_committers: Annotated[
+            bool,
+            typer.Option(
+                "--exclude-env-committers",
+                help="Reject profiles that have committed .env files.",
+            ),
+        ] = False,
+    ) -> None:
+        """Screen one or more GitHub profiles against chosen criteria.
 
     \b
     Examples
     --------
-      gh-screener screen octocat torvalds --commit-contributions active
-      gh-screener screen https://github.com/octocat --languages Python --languages Go
-      gh-screener screen octocat --public-repositories senior-dev
-    """
+      gh-screener octocat torvalds --commit-contributions active
+      gh-screener https://github.com/octocat --languages Python --languages Go
+      gh-screener octocat --public-repositories senior-dev
+        """
+        usernames: list[str] = []
+        input_errors: list[ScreeningError] = []
+        for raw in inputs:
+            try:
+                usernames.append(parse_username(raw))
+            except InvalidProfileError as exc:
+                input_errors.append(ScreeningError(username=raw, message=str(exc)))
 
-    usernames: list[str] = []
-    input_errors: list[ScreeningError] = []
-    for raw in inputs:
+        if not usernames:
+            _print_error_section(input_errors)
+            raise typer.Exit(code=1)
+
         try:
-            usernames.append(parse_username(raw))
-        except InvalidProfileError as exc:
-            input_errors.append(ScreeningError(username=raw, message=str(exc)))
+            criteria = build_criteria(
+                commit_contributions=commit_contributions,
+                languages=languages or [],
+                public_repositories=public_repositories,
+                exclude_env_committers=exclude_env_committers,
+            )
+        except UnknownCriteriaOptionError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1)
 
-    if not usernames:
-        _print_error_section(input_errors)
-        raise typer.Exit(code=1)
+        try:
+            repository = repository_factory()
+        except RuntimeError as exc:
+            typer.echo(f"Configuration error: {exc}", err=True)
+            raise typer.Exit(code=1)
 
-    try:
-        criteria = build_criteria(
-            commit_contributions=commit_contributions,
-            languages=languages or [],
-            public_repositories=public_repositories,
-            exclude_env_committers=exclude_env_committers,
-        )
-    except UnknownCriteriaOptionError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        typer.echo(f"Screening {len(usernames)} valid profile(s)...\n")
+        result = screening_use_case(usernames, criteria, repository)
+        result.errors[:0] = input_errors
 
-    try:
-        from gh_screener.config import get_github_token
-        from gh_screener.infra.github_client import GitHubClient
+        _print_section("Matched", result.matched_profiles, lambda p: p.username)
+        _print_section("Rejected", result.rejected_profiles, lambda p: p.username)
+        _print_error_section(result.errors)
 
-        token = get_github_token()
-        repository = GitHubClient(token=token)
-    except RuntimeError as exc:
-        typer.echo(f"Configuration error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        if input_errors or result.errors:
+            raise typer.Exit(code=2)
 
-    typer.echo(f"Screening {len(usernames)} valid profile(s)...\n")
-    result = screen_profiles(usernames, criteria, repository)
-    result.errors[:0] = input_errors
-
-    _print_section("Matched", result.matched_profiles, lambda p: p.username)
-    _print_section("Rejected", result.rejected_profiles, lambda p: p.username)
-    _print_error_section(result.errors)
-
-    if input_errors or result.errors:
-        raise typer.Exit(code=2)
+    return app
 
 
 def _print_section(title: str, items: list, label_fn) -> None:
