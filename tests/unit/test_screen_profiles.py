@@ -4,6 +4,7 @@ All tests use FakeProfileRepository so no network or GitHub token is needed.
 """
 
 import datetime
+from threading import Barrier, Event, Lock
 
 from gh_screener.application.screen_profiles import screen_profiles
 from gh_screener.domain.criteria import build_criteria
@@ -182,6 +183,54 @@ def test_error_does_not_stop_other_profiles_from_being_processed() -> None:
 
     assert result.errors[0].username == "ghost"
     assert result.matched_profiles[0].username == "alice"
+
+
+def test_screening_runs_at_most_three_profiles_at_once() -> None:
+    start_together = Barrier(3, timeout=3)
+    lock = Lock()
+    active = 0
+    maximum_active = 0
+
+    class ConcurrentRepository:
+        def get_profile(self, username: str) -> Profile:
+            nonlocal active, maximum_active
+            with lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+            try:
+                start_together.wait()
+                return _profile(username)
+            finally:
+                with lock:
+                    active -= 1
+
+    usernames = ["one", "two", "three", "four", "five", "six"]
+    result = screen_profiles(usernames, build_criteria(), ConcurrentRepository())
+
+    assert maximum_active == 3
+    assert [profile.username for profile in result.matched_profiles] == usernames
+
+
+def test_screening_keeps_input_order_when_profiles_finish_out_of_order() -> None:
+    third_finished = Event()
+    completion_order: list[str] = []
+
+    class OutOfOrderRepository:
+        def get_profile(self, username: str) -> Profile:
+            if username == "alice":
+                assert third_finished.wait(timeout=3)
+            if username == "charlie":
+                completion_order.append(username)
+                third_finished.set()
+            else:
+                completion_order.append(username)
+            return _profile(username)
+
+    usernames = ["alice", "bob", "charlie"]
+    result = screen_profiles(usernames, build_criteria(), OutOfOrderRepository())
+
+    assert completion_order.index("charlie") < completion_order.index("alice")
+    assert [profile.username for profile in result.matched_profiles] == usernames
 
 
 def test_rate_limit_stops_later_batches_and_marks_them_unprocessed() -> None:
