@@ -8,9 +8,9 @@ header on every request.
 Data fetched per profile
 ------------------------
 * ``/users/{username}``         → login, followers, following
-* ``/users/{username}/repos``   → non-fork project count and languages
-* ``/users/{username}/events``  → commits_last_12_months (PushEvents in last
-                                   365 days, counted as commits payload sum)
+* ``/users/{username}/repos``   → public repository count and languages
+* ``/graphql``                  → GitHub-recognized commit contributions over the
+                                   selected 365-day period
 
 Rate limits
 -----------
@@ -28,10 +28,16 @@ from __future__ import annotations
 import datetime
 from collections.abc import Iterable
 from pathlib import PurePosixPath
+from typing import Any
 
 import httpx
 
-from gh_screener.domain.exceptions import DomainError
+from gh_screener.domain.exceptions import (
+    DomainError,
+    GitHubApiError,
+    MalformedGitHubDataError,
+    RateLimitError,
+)
 from gh_screener.domain.models import EnvCommitScanResult, Profile, Repo
 from gh_screener.infra.error import raise_for_status
 from gh_screener.infra.mapper import (
@@ -43,9 +49,19 @@ from gh_screener.infra.mapper import (
 
 _BASE_URL = "https://api.github.com"
 _TIMEOUT = 10.0
-_SECRET_SCAN_MAX_REPOSITORIES = 20
-_SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
 _SECRET_SCAN_MAX_COMMIT_DETAILS = 40
+_ENV_TEMPLATE_MARKERS = frozenset(
+    {"default", "defaults", "dist", "example", "sample", "template"}
+)
+_COMMIT_CONTRIBUTIONS_QUERY = """
+query($username: String!, $from: DateTime!, $to: DateTime!) {
+  user(login: $username) {
+    contributionsCollection(from: $from, to: $to) {
+      totalCommitContributions
+    }
+  }
+}
+"""
 
 
 class GitHubClient:
@@ -64,6 +80,20 @@ class GitHubClient:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+
+    def _request(
+        self,
+        client: httpx.Client,
+        method: str,
+        url: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        try:
+            return client.request(method, url, **kwargs)
+        except httpx.RequestError as exc:
+            raise GitHubApiError(
+                "Could not connect to the GitHub API. Check your network and retry."
+            ) from exc
 
     def get_profile(self, username: str) -> Profile:
         """Fetch a single profile and return a normalised :class:`Profile`."""
@@ -88,94 +118,105 @@ class GitHubClient:
     def _scan_env_commits(
         self, client: httpx.Client, username: str
     ) -> EnvCommitScanResult:
-        response = client.get(
-            f"/users/{username}/repos",
+        response = self._request(
+            client,
+            "GET",
+            "/search/commits",
             params={
-                "per_page": _SECRET_SCAN_MAX_REPOSITORIES + 1,
+                "q": f"author:{username} is:public",
+                "per_page": _SECRET_SCAN_MAX_COMMIT_DETAILS + 1,
                 "page": 1,
-                "type": "owner",
-                "sort": "updated",
+                "sort": "author-date",
                 "direction": "desc",
             },
         )
         raise_for_status(response, username)
-        repositories = repos_from_github(response.json())
+        search_result = response.json()
+        if not isinstance(search_result, dict):
+            raise DomainError("GitHub returned an invalid commit search result.")
 
-        complete = len(repositories) <= _SECRET_SCAN_MAX_REPOSITORIES
-        inspected_commit_details = 0
-        for repository in repositories[:_SECRET_SCAN_MAX_REPOSITORIES]:
-            name = repository.name
+        total_count = search_result.get("total_count")
+        items = search_result.get("items")
+        incomplete_results = search_result.get("incomplete_results")
+        if (
+            not isinstance(total_count, int)
+            or isinstance(total_count, bool)
+            or total_count < 0
+            or not isinstance(items, list)
+            or not isinstance(incomplete_results, bool)
+        ):
+            raise DomainError("GitHub returned an invalid commit search result.")
 
-            commits_response = client.get(
-                f"/repos/{username}/{name}/commits",
-                params={
-                    "author": username,
-                    "per_page": _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY + 1,
-                    "page": 1,
-                },
+        complete = (
+            total_count <= _SECRET_SCAN_MAX_COMMIT_DETAILS
+            and len(items) <= _SECRET_SCAN_MAX_COMMIT_DETAILS
+            and not incomplete_results
+        )
+        for commit in items[:_SECRET_SCAN_MAX_COMMIT_DETAILS]:
+            if not isinstance(commit, dict):
+                raise DomainError("GitHub returned an invalid commit record.")
+            author = commit.get("author")
+            author_login = author.get("login") if isinstance(author, dict) else None
+            if (
+                not isinstance(author_login, str)
+                or author_login.casefold() != username.casefold()
+            ):
+                continue
+
+            sha = commit.get("sha")
+            repository = commit.get("repository")
+            full_name = (
+                repository.get("full_name") if isinstance(repository, dict) else None
             )
-            raise_for_status(commits_response, username)
-            commits = commits_response.json()
-            if not isinstance(commits, list):
-                raise DomainError("GitHub returned an invalid commit list.")
+            if not isinstance(sha, str) or not sha:
+                raise DomainError("GitHub returned a commit without a valid SHA.")
+            if (
+                not isinstance(full_name, str)
+                or len(full_name.split("/")) != 2
+                or not all(full_name.split("/"))
+            ):
+                raise DomainError("GitHub returned a commit without a valid repository.")
 
-            if len(commits) > _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY:
+            detail_response = self._request(
+                client,
+                "GET",
+                f"/repos/{full_name}/commits/{sha}",
+            )
+            raise_for_status(detail_response, username)
+            detail = detail_response.json()
+            files = detail.get("files") if isinstance(detail, dict) else None
+            if not isinstance(files, list):
+                raise DomainError("GitHub returned commit details without a file list.")
+
+            if any(
+                _is_env_file(file.get("filename"))
+                for file in files
+                if isinstance(file, dict)
+            ):
+                return EnvCommitScanResult(found=True, complete=True)
+            if "next" in detail_response.links:
                 complete = False
-
-            for commit in commits[:_SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY]:
-                if not isinstance(commit, dict):
-                    raise DomainError("GitHub returned an invalid commit record.")
-                author = commit.get("author")
-                author_login = author.get("login") if isinstance(author, dict) else None
-                if (
-                    not isinstance(author_login, str)
-                    or author_login.casefold() != username.casefold()
-                ):
-                    continue
-                sha = commit.get("sha")
-                if not isinstance(sha, str) or not sha:
-                    raise DomainError("GitHub returned a commit without a valid SHA.")
-
-                if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
-                    return EnvCommitScanResult(found=False, complete=False)
-
-                detail_response = client.get(f"/repos/{username}/{name}/commits/{sha}")
-                raise_for_status(detail_response, username)
-                detail = detail_response.json()
-                files = detail.get("files") if isinstance(detail, dict) else None
-                if not isinstance(files, list):
-                    raise DomainError("GitHub returned commit details without a file list.")
-                inspected_commit_details += 1
-
-                if any(
-                    _is_env_file(file.get("filename"))
-                    for file in files
-                    if isinstance(file, dict)
-                ):
-                    return EnvCommitScanResult(found=True, complete=True)
-                if inspected_commit_details >= _SECRET_SCAN_MAX_COMMIT_DETAILS:
-                    return EnvCommitScanResult(found=False, complete=False)
-                if "next" in detail_response.links:
-                    complete = False
 
         return EnvCommitScanResult(found=False, complete=complete)
 
     def _fetch_profile(self, client: httpx.Client, username: str) -> Profile:
         user_data = self._get_user(client, username)
         repositories = self._get_repositories(client, username)
-        commits = self._get_commits_last_12_months(client, username)
+        commit_contributions = self._get_commit_contributions_last_12_months(
+            client, username
+        )
         followers, following = follow_counts_from_github(user_data)
 
         return build_profile(
             username=username_from_github(user_data),
             repos=repositories,
-            commits=commits,
+            commit_contributions=commit_contributions,
             followers=followers,
             following=following,
         )
 
     def _get_user(self, client: httpx.Client, username: str) -> dict:
-        response = client.get(f"/users/{username}")
+        response = self._request(client, "GET", f"/users/{username}")
         raise_for_status(response, username, is_user_lookup=True)
         return response.json()
 
@@ -186,7 +227,9 @@ class GitHubClient:
         per_page = 100
 
         while True:
-            response = client.get(
+            response = self._request(
+                client,
+                "GET",
                 f"/users/{username}/repos",
                 params={"per_page": per_page, "page": page, "type": "owner"},
             )
@@ -201,51 +244,68 @@ class GitHubClient:
 
         return repositories
 
-    def _get_commits_last_12_months(self, client: httpx.Client, username: str) -> int:
-        """Count commits pushed by *username* in the last 365 days.
+    def _get_commit_contributions_last_12_months(
+        self, client: httpx.Client, username: str
+    ) -> int:
+        end = datetime.datetime.now(tz=datetime.UTC)
+        start = end - datetime.timedelta(days=365)
+        response = self._request(
+            client,
+            "POST",
+            "/graphql",
+            json={
+                "query": _COMMIT_CONTRIBUTIONS_QUERY,
+                "variables": {
+                    "username": username,
+                    "from": start.isoformat(),
+                    "to": end.isoformat(),
+                },
+            },
+        )
+        raise_for_status(response, username)
 
-        Uses the public events endpoint (up to 300 events, 10 pages x 30).
-        Each ``PushEvent`` contributes ``size`` commits (distinct commits in
-        that push).  This is an approximation consistent with what the GitHub
-        contribution graph shows for public repositories.
-        """
-        cutoff = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(days=365)
-        total_commits = 0
-        page = 1
-        per_page = 100
-        exhausted = False
-
-        while page <= 10:
-            response = client.get(
-                f"/users/{username}/events/public",
-                params={"per_page": per_page, "page": page},
-            )
-            raise_for_status(response, username)
-            events = response.json()
-            if not events:
-                break
-
-            for event in events:
-                if event.get("type") != "PushEvent":
-                    continue
-                created_at_str = event.get("created_at", "")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise GitHubApiError("GitHub could not return commit contributions.")
+        errors = payload.get("errors")
+        if errors:
+            messages = []
+            if isinstance(errors, list):
+                messages = [
+                    error["message"]
+                    for error in errors
+                    if isinstance(error, dict)
+                    and isinstance(error.get("message"), str)
+                ]
+            if (
+                response.headers.get("x-ratelimit-remaining") == "0"
+                or any("rate limit" in message.casefold() for message in messages)
+            ):
+                raw_reset = response.headers.get("x-ratelimit-reset")
                 try:
-                    created_at = datetime.datetime.fromisoformat(created_at_str)
-                except ValueError:
-                    continue
+                    reset_at = datetime.datetime.fromtimestamp(
+                        int(raw_reset), tz=datetime.UTC
+                    )
+                except (TypeError, ValueError):
+                    reset_at = None
+                raise RateLimitError(reset_at=reset_at)
+            raise GitHubApiError("GitHub could not return commit contributions.")
 
-                if created_at < cutoff:
-                    exhausted = True
-                    break
-
-                payload = event.get("payload", {})
-                total_commits += payload.get("size", 0)
-
-            if exhausted or len(events) < per_page:
-                break
-            page += 1
-
-        return total_commits
+        data = payload.get("data")
+        user = data.get("user") if isinstance(data, dict) else None
+        collection = (
+            user.get("contributionsCollection") if isinstance(user, dict) else None
+        )
+        count = (
+            collection.get("totalCommitContributions")
+            if isinstance(collection, dict)
+            else None
+        )
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise MalformedGitHubDataError(
+                "GitHub returned an invalid commit contribution count."
+            )
+        return count
 
 
 def _is_env_file(filename: object) -> bool:
@@ -256,7 +316,6 @@ def _is_env_file(filename: object) -> bool:
         return True
     if not basename.startswith(".env."):
         return False
-    
-    template_markers = {"default", "defaults", "dist", "example", "sample", "template"}
-    suffix = basename[len(".env."):].split(".", maxsplit=1)[0]
-    return suffix not in template_markers
+
+    suffixes = basename.removeprefix(".env.").split(".")
+    return not any(suffix in _ENV_TEMPLATE_MARKERS for suffix in suffixes)

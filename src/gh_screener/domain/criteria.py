@@ -12,7 +12,7 @@ COMMIT_OPTIONS: Final[dict[str, dict[str, int]]] = {
     "legendary": {"minimum": 2_000},
 }
 
-OPEN_SOURCE_PROJECT_OPTIONS: Final[dict[str, int]] = {
+PUBLIC_REPOSITORY_OPTIONS: Final[dict[str, int]] = {
     "senior-dev": 20,
     "github-ceo": 50,
 }
@@ -22,30 +22,32 @@ OptionValue = TypeVar("OptionValue")
 
 def build_criteria(
     *,
-    commits: str | None = None,
+    commit_contributions: str | None = None,
     languages: Iterable[str] = (),
-    open_source_projects: str | None = None,
+    public_repositories: str | None = None,
     exclude_env_committers: bool = False,
 ) -> ScreeningCriteria:
-    commit_values = _get_option(COMMIT_OPTIONS, commits, "commits")
-    project_minimum = _get_option(
-        OPEN_SOURCE_PROJECT_OPTIONS,
-        open_source_projects,
-        "open source projects",
+    commit_values = _get_option(
+        COMMIT_OPTIONS, commit_contributions, "commit contributions"
+    )
+    repository_minimum = _get_option(
+        PUBLIC_REPOSITORY_OPTIONS,
+        public_repositories,
+        "public repositories",
     )
     selected_languages = frozenset(
         language.strip() for language in languages if language.strip()
     )
 
     return ScreeningCriteria(
-        minimum_commits_last_12_months=(
+        minimum_commit_contributions_last_12_months=(
             commit_values.get("minimum") if commit_values is not None else None
         ),
-        maximum_commits_last_12_months=(
+        maximum_commit_contributions_last_12_months=(
             commit_values.get("maximum") if commit_values is not None else None
         ),
         preferred_languages=selected_languages,
-        minimum_open_source_projects=project_minimum,
+        minimum_public_repositories=repository_minimum,
         exclude_env_committers=exclude_env_committers,
     )
 
@@ -68,7 +70,7 @@ def _get_option(
 
 __all__ = [
     "COMMIT_OPTIONS",
-    "OPEN_SOURCE_PROJECT_OPTIONS",
+    "PUBLIC_REPOSITORY_OPTIONS",
     "ScreeningCriteria",
     "build_criteria",
 ]

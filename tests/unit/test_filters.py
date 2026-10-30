@@ -31,9 +31,9 @@ from gh_screener.domain.models import Profile, ScreeningCriteria
 def test_filter_commits(level, count, expected):
     profile = Profile(
         username="test-user",
-        commits_last_12_months=count,
+        commit_contributions_last_12_months=count,
     )
-    criteria = build_criteria(commits=level)
+    criteria = build_criteria(commit_contributions=level)
 
     assert filter_commits(profile, criteria) is expected
 
@@ -41,11 +41,11 @@ def test_filter_commits(level, count, expected):
 def test_missing_commits_data_raises_error():
     profile = Profile(
         username="test-user",
-        commits_last_12_months=None,
+        commit_contributions_last_12_months=None,
     )
-    criteria = build_criteria(commits="active")
+    criteria = build_criteria(commit_contributions="active")
 
-    with pytest.raises(ValueError, match="Missing commits data"):
+    with pytest.raises(ValueError, match="Missing commit contribution data"):
         filter_commits(profile, criteria)
 
 

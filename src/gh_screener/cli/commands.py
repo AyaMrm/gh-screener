@@ -27,13 +27,14 @@ from gh_screener.application.screen_profiles import screen_profiles
 from gh_screener.cli.parser import parse_username
 from gh_screener.domain.criteria import (
     COMMIT_OPTIONS,
-    OPEN_SOURCE_PROJECT_OPTIONS,
+    PUBLIC_REPOSITORY_OPTIONS,
     build_criteria,
 )
 from gh_screener.domain.exceptions import (
     InvalidProfileError,
     UnknownCriteriaOptionError,
 )
+from gh_screener.domain.models import ScreeningError
 
 app = typer.Typer(
     name="gh-screener",
@@ -42,7 +43,7 @@ app = typer.Typer(
 )
 
 _COMMIT_CHOICES = ", ".join(COMMIT_OPTIONS)
-_PROJECT_CHOICES = ", ".join(OPEN_SOURCE_PROJECT_OPTIONS)
+_PROJECT_CHOICES = ", ".join(PUBLIC_REPOSITORY_OPTIONS)
 
 
 @app.command()
@@ -54,11 +55,15 @@ def screen(
             metavar="USERNAME_OR_URL",
         ),
     ],
-    commits: Annotated[
+    commit_contributions: Annotated[
         str | None,
         typer.Option(
+            "--commit-contributions",
             "--commits",
-            help=f"Commit activity filter. Choices: {_COMMIT_CHOICES}.",
+            help=(
+                "GitHub-recognized commit contribution filter over the last 365 days. "
+                f"Choices: {_COMMIT_CHOICES}."
+            ),
             metavar="LEVEL",
         ),
     ] = None,
@@ -73,11 +78,11 @@ def screen(
             metavar="LANG",
         ),
     ] = None,
-    open_source_projects: Annotated[
+    public_repositories: Annotated[
         str | None,
         typer.Option(
-            "--open-source-projects",
-            help=f"Open-source project filter. Choices: {_PROJECT_CHOICES}.",
+            "--public-repositories",
+            help=f"Public repository filter. Choices: {_PROJECT_CHOICES}.",
             metavar="LEVEL",
         ),
     ] = None,
@@ -94,24 +99,28 @@ def screen(
     \b
     Examples
     --------
-      gh-screener screen octocat torvalds --commits active
+      gh-screener screen octocat torvalds --commit-contributions active
       gh-screener screen https://github.com/octocat --languages Python --languages Go
-      gh-screener screen octocat --open-source-projects senior-dev
+      gh-screener screen octocat --public-repositories senior-dev
     """
 
     usernames: list[str] = []
+    input_errors: list[ScreeningError] = []
     for raw in inputs:
         try:
             usernames.append(parse_username(raw))
         except InvalidProfileError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(code=1)
+            input_errors.append(ScreeningError(username=raw, message=str(exc)))
+
+    if not usernames:
+        _print_error_section(input_errors)
+        raise typer.Exit(code=1)
 
     try:
         criteria = build_criteria(
-            commits=commits,
+            commit_contributions=commit_contributions,
             languages=languages or [],
-            open_source_projects=open_source_projects,
+            public_repositories=public_repositories,
             exclude_env_committers=exclude_env_committers,
         )
     except UnknownCriteriaOptionError as exc:
@@ -128,14 +137,15 @@ def screen(
         typer.echo(f"Configuration error: {exc}", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"Screening {len(usernames)} profile(s)...\n")
+    typer.echo(f"Screening {len(usernames)} valid profile(s)...\n")
     result = screen_profiles(usernames, criteria, repository)
+    result.errors[:0] = input_errors
 
     _print_section("Matched", result.matched_profiles, lambda p: p.username)
     _print_section("Rejected", result.rejected_profiles, lambda p: p.username)
     _print_error_section(result.errors)
 
-    if result.errors:
+    if input_errors or result.errors:
         raise typer.Exit(code=2)
 
 

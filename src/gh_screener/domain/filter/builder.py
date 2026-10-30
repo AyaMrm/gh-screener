@@ -41,23 +41,23 @@ def build_filters(criteria: ScreeningCriteria) -> list[Filter]:
         )
 
     if (
-        criteria.maximum_commits_last_12_months is not None
-        or criteria.minimum_commits_last_12_months is not None
+        criteria.maximum_commit_contributions_last_12_months is not None
+        or criteria.minimum_commit_contributions_last_12_months is not None
     ):
         filters.append(
             CriteriaFilter(
                 criteria,
                 filter_commits,
-                frozenset({"commits_last_12_months"}),
+                frozenset({"commit_contributions_last_12_months"}),
             )
         )
 
-    if criteria.minimum_open_source_projects is not None:
+    if criteria.minimum_public_repositories is not None:
         filters.append(
             CriteriaFilter(
                 criteria,
                 filter_projects,
-                frozenset({"open_source_projects"}),
+                frozenset({"public_repositories"}),
             )
         )
 

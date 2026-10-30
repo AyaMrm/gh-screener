@@ -21,18 +21,18 @@ from gh_screener.domain.models import Profile
     ],
 )
 def test_filter_projects(level, count, expected):
-    profile = Profile(username="test_user", open_source_projects=count)
-    criteria = build_criteria(open_source_projects=level)
+    profile = Profile(username="test_user", public_repositories=count)
+    criteria = build_criteria(public_repositories=level)
     assert filter_projects(profile, criteria) is expected
 
 
 def test_no_level_selected_always_passes():
-    profile = Profile(username="test_user", open_source_projects=0)
+    profile = Profile(username="test_user", public_repositories=0)
     assert filter_projects(profile, build_criteria()) is True
 
 
 def test_missing_projects_data_raises_error():
-    profile = Profile(username="test_user", open_source_projects=None)
-    criteria = build_criteria(open_source_projects="senior-dev")
-    with pytest.raises(ValueError, match="Missing open source projects data"):
+    profile = Profile(username="test_user", public_repositories=None)
+    criteria = build_criteria(public_repositories="senior-dev")
+    with pytest.raises(ValueError, match="Missing public repository data"):
         filter_projects(profile, criteria)

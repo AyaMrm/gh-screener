@@ -4,29 +4,29 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class Profile:
     username: str
-    open_source_projects: int = 0
+    public_repositories: int = 0
     followers: int = 0
     following: int = 0
     repository_languages: frozenset[str] = field(default_factory=frozenset)
-    commits_last_12_months: int = 0
+    commit_contributions_last_12_months: int = 0
     has_committed_env_files: bool = False
 
 
 @dataclass(frozen=True)
 class ScreeningCriteria:
-    minimum_commits_last_12_months: int | None = None
-    maximum_commits_last_12_months: int | None = None
+    minimum_commit_contributions_last_12_months: int | None = None
+    maximum_commit_contributions_last_12_months: int | None = None
     preferred_languages: frozenset[str] = field(default_factory=frozenset)
-    minimum_open_source_projects: int | None = None
+    minimum_public_repositories: int | None = None
     exclude_env_committers: bool = False
 
     @property
     def is_empty(self) -> bool:
         return (
-            self.minimum_commits_last_12_months is None
-            and self.maximum_commits_last_12_months is None
+            self.minimum_commit_contributions_last_12_months is None
+            and self.maximum_commit_contributions_last_12_months is None
             and not self.preferred_languages
-            and self.minimum_open_source_projects is None
+            and self.minimum_public_repositories is None
             and not self.exclude_env_committers
         )
 
@@ -56,3 +56,4 @@ class Repo:
     name: str
     language: str | None
     is_fork: bool
+    is_private: bool

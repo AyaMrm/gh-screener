@@ -20,7 +20,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import replace
 
-from gh_screener.domain.exceptions import DomainError, SecretScanIncompleteError
+from gh_screener.domain.exceptions import (
+    DomainError,
+    RateLimitError,
+    SecretScanIncompleteError,
+)
 from gh_screener.domain.filter.builder import build_filters
 from gh_screener.domain.filters import matches_all
 from gh_screener.domain.models import (
@@ -57,8 +61,9 @@ def screen_profiles(
     """
     result = ScreeningResult()
     filters = build_filters(criteria)
+    usernames = list(usernames)
 
-    for username in usernames:
+    for index, username in enumerate(usernames):
         try:
             profile = repository.get_profile(username)
             if criteria.exclude_env_committers:
@@ -69,6 +74,21 @@ def screen_profiles(
                         "confirm whether this profile is clear."
                     )
                 profile = replace(profile, has_committed_env_files=scan.found)
+        except RateLimitError as exc:
+            message = str(exc)
+            if exc.reset_at is not None:
+                message += f" Retry after {exc.reset_at.isoformat()}."
+            result.errors.append(ScreeningError(username=username, message=message))
+            result.errors.extend(
+                ScreeningError(
+                    username=skipped_username,
+                    message=(
+                        "Not processed because the GitHub API rate limit was reached."
+                    ),
+                )
+                for skipped_username in usernames[index + 1 :]
+            )
+            break
         except DomainError as exc:
             result.errors.append(ScreeningError(username=username, message=str(exc)))
             continue

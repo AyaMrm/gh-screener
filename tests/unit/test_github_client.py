@@ -7,7 +7,6 @@ minimal JSON objects that contain only the fields our client reads.
 
 from __future__ import annotations
 
-import datetime
 import json
 
 import httpx
@@ -74,11 +73,23 @@ def _patched_scan_env_commits(
         return gh_client._scan_env_commits(http, username)
 
 
+def test_request_converts_transport_errors_to_github_api_errors() -> None:
+    def fail_request(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection failed", request=request)
+
+    transport = httpx.MockTransport(fail_request)
+    client = GitHubClient(token="fake-token")
+
+    with (
+        httpx.Client(base_url="https://api.github.com", transport=transport) as http,
+        pytest.raises(GitHubApiError, match="Could not connect to the GitHub API"),
+    ):
+        client._request(http, "GET", "/users/octocat")
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-_NOW_ISO = datetime.datetime.now(tz=datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 _USER_RESPONSE = _make_response(200, {
     "login": "octocat",
@@ -88,30 +99,26 @@ _USER_RESPONSE = _make_response(200, {
 })
 
 _REPOS_RESPONSE = _make_response(200, [
-    {"name": "python-repo", "language": "Python", "fork": False},
-    {"name": "go-repo", "language": "Go", "fork": False},
-    {"name": "empty-repo", "language": None, "fork": False},
+    {"name": "python-repo", "language": "Python", "fork": False, "private": False},
+    {"name": "go-repo", "language": "Go", "fork": False, "private": False},
+    {"name": "empty-repo", "language": None, "fork": False, "private": False},
 ])
 
-_EVENTS_RESPONSE = _make_response(200, [
-    {
-        "type": "PushEvent",
-        "created_at": _NOW_ISO,
-        "payload": {"size": 3},
+_CONTRIBUTIONS_RESPONSE = _make_response(200, {
+    "data": {
+        "user": {
+            "contributionsCollection": {"totalCommitContributions": 5},
+        },
     },
-    {
-        "type": "PushEvent",
-        "created_at": _NOW_ISO,
-        "payload": {"size": 2},
-    },
-    {
-        "type": "WatchEvent",  # non-push events are ignored
-        "created_at": _NOW_ISO,
-        "payload": {},
-    },
-])
+})
 
-_EMPTY_EVENTS = _make_response(200, [])
+_ZERO_CONTRIBUTIONS_RESPONSE = _make_response(200, {
+    "data": {
+        "user": {
+            "contributionsCollection": {"totalCommitContributions": 0},
+        },
+    },
+})
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +127,7 @@ _EMPTY_EVENTS = _make_response(200, [])
 
 def test_get_profile_returns_correct_username() -> None:
     routes = {
-        "/users/octocat/events": _EVENTS_RESPONSE,
+        "/graphql": _CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
@@ -130,21 +137,21 @@ def test_get_profile_returns_correct_username() -> None:
     assert profile.username == "octocat"
 
 
-def test_get_profile_counts_non_fork_repositories_as_projects() -> None:
+def test_get_profile_counts_public_repositories() -> None:
     routes = {
-        "/users/octocat/events": _EVENTS_RESPONSE,
+        "/graphql": _CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.open_source_projects == 3
+    assert profile.public_repositories == 3
 
 
 def test_get_profile_rejects_malformed_repository_data() -> None:
     malformed_repos = _make_response(200, [
-        {"name": "missing-fork-flag", "language": "Python"},
+        {"name": "missing-fork-flag", "language": "Python", "private": False},
     ])
     routes = {
         "/users/octocat": _USER_RESPONSE,
@@ -157,7 +164,7 @@ def test_get_profile_rejects_malformed_repository_data() -> None:
 
 def test_get_profile_maps_followers_and_following() -> None:
     routes = {
-        "/users/octocat/events": _EVENTS_RESPONSE,
+        "/graphql": _CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
@@ -170,7 +177,7 @@ def test_get_profile_maps_followers_and_following() -> None:
 
 def test_get_profile_collects_languages_from_repos() -> None:
     routes = {
-        "/users/octocat/events": _EVENTS_RESPONSE,
+        "/graphql": _CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
@@ -180,26 +187,25 @@ def test_get_profile_collects_languages_from_repos() -> None:
     assert profile.repository_languages == frozenset({"Python", "Go"})
 
 
-def test_get_profile_counts_push_event_commits() -> None:
+def test_get_profile_counts_commit_contributions() -> None:
     routes = {
-        "/users/octocat/events": _EVENTS_RESPONSE,
+        "/graphql": _CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    # 3 + 2 from the two PushEvents; WatchEvent is ignored
-    assert profile.commits_last_12_months == 5
+    assert profile.commit_contributions_last_12_months == 5
 
 
 def test_null_language_repos_are_excluded() -> None:
     repos_with_nulls = _make_response(200, [
-        {"name": "one", "language": None, "fork": False},
-        {"name": "two", "language": None, "fork": False},
+        {"name": "one", "language": None, "fork": False, "private": False},
+        {"name": "two", "language": None, "fork": False, "private": False},
     ])
     routes = {
-        "/users/octocat/events": _EMPTY_EVENTS,
+        "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": repos_with_nulls,
         "/users/octocat": _USER_RESPONSE,
     }
@@ -209,13 +215,14 @@ def test_null_language_repos_are_excluded() -> None:
     assert profile.repository_languages == frozenset()
 
 
-def test_languages_from_forked_repositories_are_excluded() -> None:
+def test_public_repo_count_includes_forks_but_excludes_private_repos() -> None:
     repos_with_fork = _make_response(200, [
-        {"name": "python", "language": "Python", "fork": False},
-        {"name": "go-fork", "language": "Go", "fork": True},
+        {"name": "python", "language": "Python", "fork": False, "private": False},
+        {"name": "go-fork", "language": "Go", "fork": True, "private": False},
+        {"name": "private", "language": "Rust", "fork": False, "private": True},
     ])
     routes = {
-        "/users/octocat/events": _EMPTY_EVENTS,
+        "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": repos_with_fork,
         "/users/octocat": _USER_RESPONSE,
     }
@@ -223,42 +230,42 @@ def test_languages_from_forked_repositories_are_excluded() -> None:
     profile = _patched_get_profile(GitHubClient(token="fake-token"), "octocat", routes)
 
     assert profile.repository_languages == frozenset({"Python"})
-    assert profile.open_source_projects == 1
+    assert profile.public_repositories == 2
 
 
-def test_no_events_gives_zero_commits() -> None:
+def test_zero_contributions_gives_zero_commits() -> None:
     routes = {
-        "/users/octocat/events": _EMPTY_EVENTS,
+        "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.commits_last_12_months == 0
+    assert profile.commit_contributions_last_12_months == 0
 
 
 # ---------------------------------------------------------------------------
-# Events older than 365 days are excluded
+# Invalid GraphQL contribution data is rejected
 # ---------------------------------------------------------------------------
 
-def test_old_push_events_are_not_counted() -> None:
-    old_date = (
-        datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(days=400)
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    old_events = _make_response(200, [
-        {"type": "PushEvent", "created_at": old_date, "payload": {"size": 99}},
-    ])
+def test_invalid_graphql_contribution_count_is_rejected() -> None:
+    invalid_count = _make_response(200, {
+        "data": {
+            "user": {
+                "contributionsCollection": {"totalCommitContributions": -1},
+            },
+        },
+    })
     routes = {
-        "/users/octocat/events": old_events,
+        "/graphql": invalid_count,
         "/users/octocat/repos": _REPOS_RESPONSE,
         "/users/octocat": _USER_RESPONSE,
     }
     client = GitHubClient(token="fake-token")
-    profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.commits_last_12_months == 0
+    with pytest.raises(MalformedGitHubDataError):
+        _patched_get_profile(client, "octocat", routes)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +275,7 @@ def test_old_push_events_are_not_counted() -> None:
 def test_404_raises_profile_not_found_error() -> None:
     not_found = _make_response(404, {"message": "Not Found"})
     routes = {
-        "/users/ghost/events": _EMPTY_EVENTS,
+        "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
         "/users/ghost/repos": _make_response(200, []),
         "/users/ghost": not_found,
     }
@@ -281,7 +288,7 @@ def test_404_raises_profile_not_found_error() -> None:
 def test_non_404_api_error_raises_domain_error() -> None:
     server_error = _make_response(500, {"message": "Internal Server Error"})
     routes = {
-        "/users/octocat/events": _EMPTY_EVENTS,
+        "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _make_response(200, []),
         "/users/octocat": server_error,
     }
@@ -302,7 +309,7 @@ def test_401_raises_authentication_error() -> None:
 def test_rate_limit_error_raises_domain_error() -> None:
     rate_limited = _make_response(403, {"message": "API rate limit exceeded"})
     routes = {
-        "/users/octocat/events": _EMPTY_EVENTS,
+        "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _make_response(200, []),
         "/users/octocat": rate_limited,
     }
@@ -314,15 +321,18 @@ def test_rate_limit_error_raises_domain_error() -> None:
 
 def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
     routes = {
-        "/repos/octocat/demo/commits/abc123": _make_response(200, {
+        "/search/commits": _make_response(200, {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "sha": "abc123",
+                "author": {"login": "octocat"},
+                "repository": {"full_name": "other-owner/demo"},
+            }],
+        }),
+        "/repos/other-owner/demo/commits/abc123": _make_response(200, {
             "files": [{"filename": "config/.env.production"}],
         }),
-        "/repos/octocat/demo/commits": _make_response(200, [
-            {"sha": "abc123", "author": {"login": "octocat"}},
-        ]),
-        "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False},
-        ]),
     }
     client = GitHubClient(token="fake-token")
 
@@ -333,12 +343,15 @@ def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
 
 def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
     routes = {
-        "/repos/octocat/demo/commits": _make_response(200, [
-            {"sha": "abc123", "author": {"login": "other-user"}},
-        ]),
-        "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False},
-        ]),
+        "/search/commits": _make_response(200, {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "sha": "abc123",
+                "author": {"login": "other-user"},
+                "repository": {"full_name": "other-owner/demo"},
+            }],
+        }),
     }
     client = GitHubClient(token="fake-token")
 
@@ -348,12 +361,46 @@ def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
     assert result.complete is True
 
 
+def test_env_commit_scan_reports_incomplete_when_result_exceeds_limit() -> None:
+    items = [
+        {
+            "sha": f"sha-{index}",
+            "author": {"login": "octocat"},
+            "repository": {"full_name": "other-owner/demo"},
+        }
+        for index in range(41)
+    ]
+    routes = {
+        "/search/commits": _make_response(200, {
+            "total_count": 41,
+            "incomplete_results": False,
+            "items": items,
+        }),
+        "/repos/other-owner/demo/commits/": _make_response(200, {"files": []}),
+    }
+
+    result = _patched_scan_env_commits(
+        GitHubClient(token="fake-token"), "octocat", routes
+    )
+
+    assert result.found is False
+    assert result.complete is False
+
+
 def test_missing_repository_during_scan_is_not_reported_as_missing_user() -> None:
     routes = {
-        "/repos/octocat/demo/commits": _make_response(404, {"message": "Not Found"}),
-        "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False},
-        ]),
+        "/search/commits": _make_response(200, {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "sha": "abc123",
+                "author": {"login": "octocat"},
+                "repository": {"full_name": "other-owner/demo"},
+            }],
+        }),
+        "/repos/other-owner/demo/commits/abc123": _make_response(
+            404, {"message": "Not Found"}
+        ),
     }
 
     with pytest.raises(GitHubApiError):
@@ -374,6 +421,9 @@ def test_env_file_matcher_detects_env_files(filename: str) -> None:
     "filename",
     [
         ".env.example",
+        ".env.production.example",
+        ".env.local.sample",
+        ".env.development.dist",
         "config/.env.sample",
         ".env.template.local",
         ".env.defaults",
