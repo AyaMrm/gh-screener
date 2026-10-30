@@ -14,5 +14,10 @@ dev = ["pytest", "ruff"]
 [project.scripts]
 gh-screener = "gh_screener.main:app"
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that call the live GitHub API",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gh_screener"]

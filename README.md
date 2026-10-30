@@ -46,8 +46,7 @@ Never commit `.env` or any other file containing a real token.
 
 ## Development commands
 
-The project currently contains the package scaffold. The commands below are
-the checks configured for local development and CI:
+The commands below are the checks configured for local development and CI:
 
 ```bash
 # Check code style
@@ -57,9 +56,36 @@ ruff check .
 pytest
 ```
 
-The `gh-screener` console entry point is declared in `pyproject.toml`, but the
-screening CLI is not implemented yet. The usage command will be added here
-when `main.py` and `cli/commands.py` are implemented.
+The live GitHub API integration tests are marked `integration`. They are
+skipped automatically when `GITHUB_TOKEN` is unavailable. To run only those
+tests, configure the token in `.env` or the environment and run:
+
+```bash
+pytest -m integration
+```
+
+To run only the tests that do not contact GitHub:
+
+```bash
+pytest -m "not integration"
+```
+
+After installing the project, display the CLI help with:
+
+```bash
+gh-screener --help
+```
+
+Screen profiles with one or more criteria, for example:
+
+```bash
+gh-screener octocat torvalds --commit-contributions active
+gh-screener https://github.com/octocat --languages Python --languages Go
+gh-screener octocat --public-repositories senior-dev
+```
+
+If `GITHUB_TOKEN` is missing, the command displays a short configuration
+message and exits without a traceback.
 
 ## Criteria options
 
