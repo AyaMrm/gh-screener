@@ -3,9 +3,11 @@
 All tests use FakeProfileRepository so no network or GitHub token is needed.
 """
 
+import datetime
 
 from gh_screener.application.screen_profiles import screen_profiles
 from gh_screener.domain.criteria import build_criteria
+from gh_screener.domain.exceptions import RateLimitError
 from gh_screener.domain.models import Profile
 from tests.fakes import FakeProfileRepository
 
@@ -180,6 +182,32 @@ def test_error_does_not_stop_other_profiles_from_being_processed() -> None:
 
     assert result.errors[0].username == "ghost"
     assert result.matched_profiles[0].username == "alice"
+
+
+def test_rate_limit_stops_requests_and_marks_remaining_profiles_unprocessed() -> None:
+    reset_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+
+    class RateLimitedRepository:
+        def __init__(self) -> None:
+            self.profile_calls: list[str] = []
+
+        def get_profile(self, username: str) -> Profile:
+            self.profile_calls.append(username)
+            if username == "bob":
+                raise RateLimitError(reset_at=reset_at)
+            return _profile(username)
+
+    repository = RateLimitedRepository()
+    result = screen_profiles(
+        ["alice", "bob", "charlie"], build_criteria(), repository
+    )
+
+    assert repository.profile_calls == ["alice", "bob"]
+    assert [profile.username for profile in result.matched_profiles] == ["alice"]
+    assert result.errors[0].username == "bob"
+    assert reset_at.isoformat() in result.errors[0].message
+    assert result.errors[1].username == "charlie"
+    assert "Not processed" in result.errors[1].message
 
 
 def test_multiple_profiles_are_bucketed_independently() -> None:

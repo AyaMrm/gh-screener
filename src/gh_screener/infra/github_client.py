@@ -52,6 +52,9 @@ _TIMEOUT = 10.0
 _SECRET_SCAN_MAX_REPOSITORIES = 20
 _SECRET_SCAN_MAX_COMMITS_PER_REPOSITORY = 15
 _SECRET_SCAN_MAX_COMMIT_DETAILS = 40
+_ENV_TEMPLATE_MARKERS = frozenset(
+    {"default", "defaults", "dist", "example", "sample", "template"}
+)
 _COMMIT_CONTRIBUTIONS_QUERY = """
 query($username: String!, $from: DateTime!, $to: DateTime!) {
   user(login: $username) {
@@ -310,7 +313,6 @@ def _is_env_file(filename: object) -> bool:
         return True
     if not basename.startswith(".env."):
         return False
-    
-    template_markers = {"default", "defaults", "dist", "example", "sample", "template"}
-    suffix = basename[len(".env."):].split(".", maxsplit=1)[0]
-    return suffix not in template_markers
+
+    suffixes = basename.removeprefix(".env.").split(".")
+    return not any(suffix in _ENV_TEMPLATE_MARKERS for suffix in suffixes)

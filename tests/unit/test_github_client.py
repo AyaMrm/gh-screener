@@ -73,6 +73,20 @@ def _patched_scan_env_commits(
         return gh_client._scan_env_commits(http, username)
 
 
+def test_request_converts_transport_errors_to_github_api_errors() -> None:
+    def fail_request(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection failed", request=request)
+
+    transport = httpx.MockTransport(fail_request)
+    client = GitHubClient(token="fake-token")
+
+    with (
+        httpx.Client(base_url="https://api.github.com", transport=transport) as http,
+        pytest.raises(GitHubApiError, match="Could not connect to the GitHub API"),
+    ):
+        client._request(http, "GET", "/users/octocat")
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -367,6 +381,9 @@ def test_env_file_matcher_detects_env_files(filename: str) -> None:
     "filename",
     [
         ".env.example",
+        ".env.production.example",
+        ".env.local.sample",
+        ".env.development.dist",
         "config/.env.sample",
         ".env.template.local",
         ".env.defaults",
