@@ -8,7 +8,7 @@ header on every request.
 Data fetched per profile
 ------------------------
 * ``/users/{username}``         → login, followers, following
-* ``/users/{username}/repos``   → non-fork project count and languages
+* ``/users/{username}/repos``   → public repository count and languages
 * ``/graphql``                  → commits_last_12_months (contributions over
                                    the selected 365-day period)
 

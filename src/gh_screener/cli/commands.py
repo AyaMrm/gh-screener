@@ -27,7 +27,7 @@ from gh_screener.application.screen_profiles import screen_profiles
 from gh_screener.cli.parser import parse_username
 from gh_screener.domain.criteria import (
     COMMIT_OPTIONS,
-    OPEN_SOURCE_PROJECT_OPTIONS,
+    PUBLIC_REPOSITORY_OPTIONS,
     build_criteria,
 )
 from gh_screener.domain.exceptions import (
@@ -42,7 +42,7 @@ app = typer.Typer(
 )
 
 _COMMIT_CHOICES = ", ".join(COMMIT_OPTIONS)
-_PROJECT_CHOICES = ", ".join(OPEN_SOURCE_PROJECT_OPTIONS)
+_PROJECT_CHOICES = ", ".join(PUBLIC_REPOSITORY_OPTIONS)
 
 
 @app.command()
@@ -73,11 +73,11 @@ def screen(
             metavar="LANG",
         ),
     ] = None,
-    open_source_projects: Annotated[
+    public_repositories: Annotated[
         str | None,
         typer.Option(
-            "--open-source-projects",
-            help=f"Open-source project filter. Choices: {_PROJECT_CHOICES}.",
+            "--public-repositories",
+            help=f"Public repository filter. Choices: {_PROJECT_CHOICES}.",
             metavar="LEVEL",
         ),
     ] = None,
@@ -96,7 +96,7 @@ def screen(
     --------
       gh-screener screen octocat torvalds --commits active
       gh-screener screen https://github.com/octocat --languages Python --languages Go
-      gh-screener screen octocat --open-source-projects senior-dev
+      gh-screener screen octocat --public-repositories senior-dev
     """
 
     usernames: list[str] = []
@@ -111,7 +111,7 @@ def screen(
         criteria = build_criteria(
             commits=commits,
             languages=languages or [],
-            open_source_projects=open_source_projects,
+            public_repositories=public_repositories,
             exclude_env_committers=exclude_env_committers,
         )
     except UnknownCriteriaOptionError as exc:

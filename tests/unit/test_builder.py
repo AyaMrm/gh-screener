@@ -29,12 +29,12 @@ def test_secret_filter_is_only_built_when_requested():
     ("criteria","expected_count"),
     [
         (build_criteria(commits="active"), 1),
-        (build_criteria(open_source_projects="senior-dev"), 1),
+        (build_criteria(public_repositories="senior-dev"), 1),
         (build_criteria(languages=["Python"]),1),
         (
             build_criteria(
                 commits="active",
-                open_source_projects="senior-dev",
+                public_repositories="senior-dev",
                 languages=["Python"],
             ),
             3,
@@ -58,11 +58,11 @@ def test_commit_filter_matches_profile():
     assert filters[0].matches(profile) is True
 
 def test_project_filter_matches_profile():
-    criteria=build_criteria(open_source_projects="senior-dev")
+    criteria=build_criteria(public_repositories="senior-dev")
     filters=build_filters(criteria)
     profile=Profile(
         username="text_user",
-        open_source_projects=25
+        public_repositories=25
     )
     assert filters[0].matches(profile) is True
 
@@ -87,7 +87,7 @@ def test_stack_filter_matches_profile_when_language_missing():
 def test_filters_expose_required_fields():
     criteria=build_criteria(
         commits="active",
-        open_source_projects="senior-dev",
+        public_repositories="senior-dev",
         languages=["Python"],
     )
     filters=build_filters(criteria)
@@ -97,6 +97,6 @@ def test_filters_expose_required_fields():
     )
     assert required_filters=={
         "commits_last_12_months",
-        "open_source_projects",
+        "public_repositories",
         "repository_languages"
     }

@@ -85,9 +85,9 @@ _USER_RESPONSE = _make_response(200, {
 })
 
 _REPOS_RESPONSE = _make_response(200, [
-    {"name": "python-repo", "language": "Python", "fork": False},
-    {"name": "go-repo", "language": "Go", "fork": False},
-    {"name": "empty-repo", "language": None, "fork": False},
+    {"name": "python-repo", "language": "Python", "fork": False, "private": False},
+    {"name": "go-repo", "language": "Go", "fork": False, "private": False},
+    {"name": "empty-repo", "language": None, "fork": False, "private": False},
 ])
 
 _CONTRIBUTIONS_RESPONSE = _make_response(200, {
@@ -123,7 +123,7 @@ def test_get_profile_returns_correct_username() -> None:
     assert profile.username == "octocat"
 
 
-def test_get_profile_counts_non_fork_repositories_as_projects() -> None:
+def test_get_profile_counts_public_repositories() -> None:
     routes = {
         "/graphql": _CONTRIBUTIONS_RESPONSE,
         "/users/octocat/repos": _REPOS_RESPONSE,
@@ -132,12 +132,12 @@ def test_get_profile_counts_non_fork_repositories_as_projects() -> None:
     client = GitHubClient(token="fake-token")
     profile = _patched_get_profile(client, "octocat", routes)
 
-    assert profile.open_source_projects == 3
+    assert profile.public_repositories == 3
 
 
 def test_get_profile_rejects_malformed_repository_data() -> None:
     malformed_repos = _make_response(200, [
-        {"name": "missing-fork-flag", "language": "Python"},
+        {"name": "missing-fork-flag", "language": "Python", "private": False},
     ])
     routes = {
         "/users/octocat": _USER_RESPONSE,
@@ -187,8 +187,8 @@ def test_get_profile_counts_commit_contributions() -> None:
 
 def test_null_language_repos_are_excluded() -> None:
     repos_with_nulls = _make_response(200, [
-        {"name": "one", "language": None, "fork": False},
-        {"name": "two", "language": None, "fork": False},
+        {"name": "one", "language": None, "fork": False, "private": False},
+        {"name": "two", "language": None, "fork": False, "private": False},
     ])
     routes = {
         "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
@@ -201,10 +201,11 @@ def test_null_language_repos_are_excluded() -> None:
     assert profile.repository_languages == frozenset()
 
 
-def test_languages_from_forked_repositories_are_excluded() -> None:
+def test_public_repo_count_includes_forks_but_excludes_private_repos() -> None:
     repos_with_fork = _make_response(200, [
-        {"name": "python", "language": "Python", "fork": False},
-        {"name": "go-fork", "language": "Go", "fork": True},
+        {"name": "python", "language": "Python", "fork": False, "private": False},
+        {"name": "go-fork", "language": "Go", "fork": True, "private": False},
+        {"name": "private", "language": "Rust", "fork": False, "private": True},
     ])
     routes = {
         "/graphql": _ZERO_CONTRIBUTIONS_RESPONSE,
@@ -215,7 +216,7 @@ def test_languages_from_forked_repositories_are_excluded() -> None:
     profile = _patched_get_profile(GitHubClient(token="fake-token"), "octocat", routes)
 
     assert profile.repository_languages == frozenset({"Python"})
-    assert profile.open_source_projects == 1
+    assert profile.public_repositories == 2
 
 
 def test_zero_contributions_gives_zero_commits() -> None:
@@ -313,7 +314,7 @@ def test_env_commit_scan_detects_env_file_in_target_users_commit() -> None:
             {"sha": "abc123", "author": {"login": "octocat"}},
         ]),
         "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False},
+            {"name": "demo", "fork": False, "private": False},
         ]),
     }
     client = GitHubClient(token="fake-token")
@@ -329,7 +330,7 @@ def test_env_commit_scan_ignores_commit_attributed_to_someone_else() -> None:
             {"sha": "abc123", "author": {"login": "other-user"}},
         ]),
         "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False},
+            {"name": "demo", "fork": False, "private": False},
         ]),
     }
     client = GitHubClient(token="fake-token")
@@ -344,7 +345,7 @@ def test_missing_repository_during_scan_is_not_reported_as_missing_user() -> Non
     routes = {
         "/repos/octocat/demo/commits": _make_response(404, {"message": "Not Found"}),
         "/users/octocat/repos": _make_response(200, [
-            {"name": "demo", "fork": False},
+            {"name": "demo", "fork": False, "private": False},
         ]),
     }
 

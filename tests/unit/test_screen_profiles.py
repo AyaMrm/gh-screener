@@ -84,15 +84,15 @@ def test_low_commits_criterion_rejects_high_commit_profile() -> None:
 # ---------------------------------------------------------------------------
 
 def test_profile_with_enough_projects_is_matched() -> None:
-    repo = FakeProfileRepository({"dev": _profile("dev", open_source_projects=25)})
-    result = screen_profiles(["dev"], build_criteria(open_source_projects="senior-dev"), repo)
+    repo = FakeProfileRepository({"dev": _profile("dev", public_repositories=25)})
+    result = screen_profiles(["dev"], build_criteria(public_repositories="senior-dev"), repo)
 
     assert result.matched_profiles[0].username == "dev"
 
 
 def test_profile_with_too_few_projects_is_rejected() -> None:
-    repo = FakeProfileRepository({"dev": _profile("dev", open_source_projects=5)})
-    result = screen_profiles(["dev"], build_criteria(open_source_projects="senior-dev"), repo)
+    repo = FakeProfileRepository({"dev": _profile("dev", public_repositories=5)})
+    result = screen_profiles(["dev"], build_criteria(public_repositories="senior-dev"), repo)
 
     assert result.rejected_profiles[0].username == "dev"
 

@@ -2,7 +2,7 @@ import pytest
 
 from gh_screener.domain.criteria import (
     COMMIT_OPTIONS,
-    OPEN_SOURCE_PROJECT_OPTIONS,
+    PUBLIC_REPOSITORY_OPTIONS,
     ScreeningCriteria,
     build_criteria,
 )
@@ -39,7 +39,7 @@ def test_predefined_options_are_kept_in_one_place() -> None:
         "very-active": {"minimum": 500},
         "legendary": {"minimum": 2_000},
     }
-    assert OPEN_SOURCE_PROJECT_OPTIONS == {
+    assert PUBLIC_REPOSITORY_OPTIONS == {
         "senior-dev": 20,
         "github-ceo": 50,
     }
@@ -49,20 +49,20 @@ def test_build_criteria_translates_selected_options() -> None:
     criteria = build_criteria(
         commits="low",
         languages=[" Python ", "Go"],
-        open_source_projects="senior-dev",
+        public_repositories="senior-dev",
     )
 
     assert criteria.minimum_commits_last_12_months is None
     assert criteria.maximum_commits_last_12_months == 49
     assert criteria.preferred_languages == frozenset({"Python", "Go"})
-    assert criteria.minimum_open_source_projects == 20
+    assert criteria.minimum_public_repositories == 20
 
 
 @pytest.mark.parametrize(
     ("kwargs", "option_name"),
     [
         ({"commits": "unknown"}, "commits"),
-        ({"open_source_projects": "unknown"}, "open source projects"),
+        ({"public_repositories": "unknown"}, "public repositories"),
     ],
 )
 def test_unknown_option_gives_a_clear_error(

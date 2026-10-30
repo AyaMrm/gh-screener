@@ -52,12 +52,12 @@ def build_filters(criteria: ScreeningCriteria) -> list[Filter]:
             )
         )
 
-    if criteria.minimum_open_source_projects is not None:
+    if criteria.minimum_public_repositories is not None:
         filters.append(
             CriteriaFilter(
                 criteria,
                 filter_projects,
-                frozenset({"open_source_projects"}),
+                frozenset({"public_repositories"}),
             )
         )
 

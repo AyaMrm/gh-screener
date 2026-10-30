@@ -16,10 +16,20 @@ def repo_from_github(raw: Any) -> Repo:
     is_fork = raw.get("fork")
     if not isinstance(is_fork, bool):  # fork flag is required, must be a real bool
         raise MalformedGitHubDataError(f"Repository {name!r} has no valid 'fork' flag")
+    is_private = raw.get("private")
+    if not isinstance(is_private, bool):
+        raise MalformedGitHubDataError(
+            f"Repository {name!r} has no valid 'private' flag"
+        )
     language = raw.get("language")  # GitHub sends null when it can't detect one
     if language is not None and not isinstance(language, str):
         raise MalformedGitHubDataError(f"Repository {name!r} has an invalid 'language'")
-    return Repo(name=name, language=language or None, is_fork=is_fork)  # "" -> None
+    return Repo(
+        name=name,
+        language=language or None,
+        is_fork=is_fork,
+        is_private=is_private,
+    )  # "" -> None
 
 
 def repos_from_github(raw_list: Any) -> list[Repo]:
@@ -56,13 +66,16 @@ def build_profile(
     following: int = 0,
 ) -> Profile:
     """Assemble a Profile. Anything not fetched keeps the model's default of 0/empty."""
-    own = [repo for repo in repos if not repo.is_fork]  # ASSUMPTION: forks don't count
+    public_repos = [repo for repo in repos if not repo.is_private]
+    non_fork_public_repos = [repo for repo in public_repos if not repo.is_fork]
     return Profile(
         username=username,
-        open_source_projects=len(own),
+        public_repositories=len(public_repos),
         followers=followers,
         following=following,
-        repository_languages=frozenset(r.language for r in own if r.language),
+        repository_languages=frozenset(
+            repo.language for repo in non_fork_public_repos if repo.language
+        ),
         commits_last_12_months=commits,
     )
 

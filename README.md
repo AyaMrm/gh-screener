@@ -4,7 +4,7 @@ A CLI tool that screens GitHub profiles against criteria chosen by the user
 and returns only the profiles that match **all** selected criteria.
 
 1. Give one or more GitHub usernames or profile links.
-2. Choose filters (commits, preferred stack, open source projects).
+2. Choose filters (commits, preferred stack, public repositories).
 3. Get the matching profiles. Invalid usernames are reported without
    blocking the others.
 
@@ -83,12 +83,15 @@ matches profiles with at least 50 commits, while `legendary` matches profiles
 with at least 2,000 commits. The options intentionally overlap: a legendary
 profile also meets the very-active and active thresholds.
 
-### Open-source projects
+### Public repositories
 
 | Option | Requirement |
 | --- | --- |
-| `senior-dev` | 20 or more projects |
-| `github-ceo` | 50 or more projects |
+| `senior-dev` | 20 or more public repositories |
+| `github-ceo` | 50 or more public repositories |
+
+Every public repository counts, including forks. A license declaration is not
+required; private repositories are excluded.
 
 ### Languages
 
