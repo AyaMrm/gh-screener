@@ -2,7 +2,7 @@
 import json
 from types import SimpleNamespace
 
-import gh_screener.model.criteria_parser as criteria_parser
+from gh_screener.model import criteria_parser
 from gh_screener.model.criteria_parser import parse_request
 
 
