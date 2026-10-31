@@ -1,15 +1,11 @@
 
 import json
-from pathlib import Path
-from ollama import chat
 import re
+from pathlib import Path
 
-from gh_screener.domain.criteria import (
-    COMMIT_OPTIONS,
-    PUBLIC_REPOSITORY_OPTIONS,
-)
+from ollama import chat
+
 from gh_screener.domain.models import ScreeningCriteria
-
 
 
 def enforce_predefined_categories(
