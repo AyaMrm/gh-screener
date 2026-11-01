@@ -22,6 +22,7 @@ from gh_screener.model.criteria_parser import parse_request
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
+
 from gh_screener.application.screen_profiles import screen_profiles
 from gh_screener.cli.parser import parse_username
 from gh_screener.domain.criteria import (
