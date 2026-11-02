@@ -309,7 +309,7 @@ with c_go, st.popover("Screen profiles ▾", use_container_width=True):
 # File upload: add its entries once per uploaded file.
 upload = st.session_state.get("upload")
 if upload is not None and st.session_state.processed_upload != upload.file_id:
-    added = add_profiles(upload.getvalue().decode("utf-8", errors="ignore"))
+    added = add_profiles(upload.getvalue().decode("utf-8-sig", errors="ignore"))
     st.session_state.processed_upload = upload.file_id
     st.session_state.note = f"{upload.name}: {added} added"
 elif upload is None:
