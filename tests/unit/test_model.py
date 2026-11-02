@@ -2,8 +2,10 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from gh_screener.model import criteria_parser
-from gh_screener.model.criteria_parser import parse_request
+from gh_screener.model.criteria_parser import CriteriaParseError, parse_request
 
 
 def mock_ollama(monkeypatch, response_data):
@@ -13,12 +15,88 @@ def mock_ollama(monkeypatch, response_data):
             content=json.dumps(response_data)
         )
     )
-
     monkeypatch.setattr(
         criteria_parser,
         "chat",
-        lambda **kwargs: fake_response
+        lambda **kwargs: fake_response,
     )
+
+
+def _valid_model_response(**overrides):
+    response = {
+        "minimum_commit_contributions_last_12_months": None,
+        "maximum_commit_contributions_last_12_months": None,
+        "preferred_languages": [],
+        "minimum_public_repositories": None,
+        "exclude_env_committers": False,
+    }
+    response.update(overrides)
+    return response
+
+
+@pytest.mark.parametrize(
+    "response_data",
+    [
+        {"minimum_commit_contributions_last_12_months": 1},
+        _valid_model_response(minimum_commit_contributions_last_12_months=True),
+        _valid_model_response(minimum_public_repositories=-1),
+        _valid_model_response(preferred_languages="Python"),
+        _valid_model_response(preferred_languages=[" "]),
+        _valid_model_response(exclude_env_committers="false"),
+        _valid_model_response(
+            minimum_commit_contributions_last_12_months=20,
+            maximum_commit_contributions_last_12_months=10,
+        ),
+        _valid_model_response(unexpected_field="value"),
+    ],
+)
+def test_rejects_invalid_model_response(monkeypatch, response_data):
+    mock_ollama(monkeypatch, response_data)
+
+    with pytest.raises(CriteriaParseError):
+        parse_request("Find a developer")
+
+
+def test_not_active_does_not_apply_active_threshold(monkeypatch):
+    mock_ollama(
+        monkeypatch,
+        _valid_model_response(minimum_commit_contributions_last_12_months=50),
+    )
+
+    criteria = parse_request("Find developers who are not active.")
+
+    assert criteria.minimum_commit_contributions_last_12_months is None
+    assert criteria.maximum_commit_contributions_last_12_months is None
+
+
+def test_positive_activity_after_negated_clause_is_preserved(monkeypatch):
+    mock_ollama(monkeypatch, _valid_model_response())
+
+    criteria = parse_request("Not Java developers. Active contributors only.")
+
+    assert criteria.minimum_commit_contributions_last_12_months == 50
+
+
+def test_without_public_repositories_does_not_add_repository_minimum(monkeypatch):
+    mock_ollama(
+        monkeypatch,
+        _valid_model_response(minimum_public_repositories=1),
+    )
+
+    criteria = parse_request("Find developers without public repositories.")
+
+    assert criteria.minimum_public_repositories is None
+
+
+def test_at_least_ten_public_projects_is_preserved(monkeypatch):
+    mock_ollama(
+        monkeypatch,
+        _valid_model_response(minimum_public_repositories=10),
+    )
+
+    criteria = parse_request("Find developers with at least 10 public projects.")
+
+    assert criteria.minimum_public_repositories == 10
 
 
 def test_basic_screening_criteria(monkeypatch):
