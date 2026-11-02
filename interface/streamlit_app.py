@@ -16,6 +16,8 @@ import re
 import sys
 from pathlib import Path
 
+from gh_screener.model.criteria_parser import parse_request
+
 # Make the project root importable (gh_screener lives one level above interface/).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -67,6 +69,7 @@ defaults = {
     "result": None,
     "run_requested": False,
     "processed_upload": None,
+    "ai_criteria": None,
 }
 for key, value in defaults.items():
     st.session_state.setdefault(key, value)
@@ -111,41 +114,54 @@ def _best_match(options: list[str], text: str) -> str | None:
 
 
 def apply_ai(text: str) -> None:
-    """Turn a plain-language description into filter values (keyword based)."""
-    t = (text or "").lower()
-    langs = []
-    for lang in LANGUAGES:
-        key = lang.lower()
-        if key == "go":
-            hit = re.search(r"\bgo(lang)?\b", t)
-        elif key == "c++":
-            hit = "c++" in t
-        else:
-            hit = key in t
-        if hit:
-            langs.append(lang)
-    commit = _best_match(COMMIT_LIST, t)
-    repos = _best_match(REPO_LIST, t)
-    env = bool(re.search(r"\.env|env file|secrets?", t))
+    """Parse a natural-language request into screening criteria."""
+    try:
+        criteria = parse_request(text)
+    except (ValueError, KeyError) as exc:
+        st.session_state.note = f"AI parsing error: {exc}"
+        return
+
+    # Save the actual criteria returned by the AI model.
+    st.session_state.ai_criteria = criteria
+
+    # Update the visible filters.
+    st.session_state.langs = list(criteria.preferred_languages)
+    st.session_state.env = criteria.exclude_env_committers
 
     found = []
-    if commit:
-        found.append(f"commits: {commit}")
-    if langs:
-        found.append("languages: " + ", ".join(langs))
-    if repos:
-        found.append(f"repos: {repos}")
-    if env:
+
+    if criteria.minimum_commit_contributions_last_12_months is not None:
+        found.append(
+            f"minimum commits: "
+            f"{criteria.minimum_commit_contributions_last_12_months}"
+        )
+
+    if criteria.maximum_commit_contributions_last_12_months is not None:
+        found.append(
+            f"maximum commits: "
+            f"{criteria.maximum_commit_contributions_last_12_months}"
+        )
+
+    if criteria.preferred_languages:
+        found.append(
+            "languages: "
+            + ", ".join(sorted(criteria.preferred_languages))
+        )
+
+    if criteria.minimum_public_repositories is not None:
+        found.append(
+            f"minimum repositories: "
+            f"{criteria.minimum_public_repositories}"
+        )
+
+    if criteria.exclude_env_committers:
         found.append("exclude .env committers")
 
-    if not found:
-        st.session_state.note = "No filters recognised."
-        return
-    st.session_state.commit = commit
-    st.session_state.langs = langs
-    st.session_state.repos = repos
-    st.session_state.env = env
-    st.session_state.note = "Filters set: " + " · ".join(found)
+    st.session_state.note = (
+        "AI filters set: " + " · ".join(found)
+        if found
+        else "No filters recognised."
+    )
 
 
 def reset_filters() -> None:
@@ -153,6 +169,7 @@ def reset_filters() -> None:
     st.session_state.langs = []
     st.session_state.repos = None
     st.session_state.env = False
+    st.session_state.ai_criteria = None
     st.session_state.note = ""
 
 
@@ -184,12 +201,20 @@ def run_screening() -> None:
         return
 
     try:
-        criteria = build_criteria(
-            commit_contributions=st.session_state.commit,
-            languages=list(st.session_state.langs),
-            public_repositories=st.session_state.repos,
-            exclude_env_committers=bool(st.session_state.env),
-        )
+        if st.session_state.ai_criteria is not None:
+            criteria = st.session_state.ai_criteria
+        else:
+            try:
+                criteria = build_criteria(
+                    commit_contributions=st.session_state.commit,
+                    languages=list(st.session_state.langs),
+                    public_repositories=st.session_state.repos,
+                    exclude_env_committers=bool(st.session_state.env),
+                )
+            except UnknownCriteriaOptionError as exc:
+                st.error(f"Error: {exc}")
+                return
+
     except UnknownCriteriaOptionError as exc:
         st.error(f"Error: {exc}")
         return

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "gh-screener"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["typer", "httpx", "python-dotenv"]
+dependencies = ["typer", "httpx", "python-dotenv", "requests", "ollama"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
