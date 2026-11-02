@@ -117,8 +117,12 @@ def apply_ai(text: str) -> None:
     """Parse a natural-language request into screening criteria."""
     try:
         criteria = parse_request(text)
-    except (ValueError, KeyError) as exc:
-        st.session_state.note = f"AI parsing error: {exc}"
+    except Exception as exc:  # noqa: BLE001 - Ollama errors vary by client version.
+        st.session_state.ai_criteria = None
+        st.session_state.note = (
+            "AI parsing failed. Make sure Ollama is running and the "
+            f"qwen2.5:3b model is available. Details: {exc}"
+        )
         return
 
     # Save the actual criteria returned by the AI model.
@@ -158,9 +162,9 @@ def apply_ai(text: str) -> None:
         found.append("exclude .env committers")
 
     st.session_state.note = (
-        "AI filters set: " + " · ".join(found)
+        "AI interpretation (review before screening): " + " | ".join(found)
         if found
-        else "No filters recognised."
+        else "AI interpretation: no filters recognised; all valid profiles will match."
     )
 
 
@@ -323,7 +327,7 @@ st.multiselect(
     label_visibility="collapsed",
 )
 if st.session_state.note:
-    st.caption(st.session_state.note)
+    st.info(st.session_state.note)
 
 # --------------------------------------------------------------------------- #
 # Run + results
