@@ -8,10 +8,12 @@ The project provides:
 - a command-line interface (CLI);
 - an optional Streamlit interface;
 - one shared screening workflow and GitHub client for both interfaces;
-- a Docker image for the CLI.
+- Docker images for the CLI and Streamlit, with Ollama available through
+  Docker Compose.
 
-It does **not** provide a REST or JSON API. The Streamlit application is run
-separately from the CLI and from the Docker image.
+It does **not** provide a REST or JSON API. The CLI and Streamlit interface are
+separate entry points; Streamlit and Ollama can be run together with Docker
+Compose.
 
 ## Contents
 
@@ -211,7 +213,8 @@ an incomplete scan produces an `Error`, not a false `Matched` result.
 
 - Python 3.11 or newer;
 - a GitHub personal access token in `GITHUB_TOKEN`;
-- Docker Desktop or another Docker Engine, only for Docker usage;
+- Docker Desktop or another Docker Engine with the Compose plugin, only for
+  Docker usage;
 - Streamlit 1.40 or newer, only for the optional web interface;
 - Ollama and the `qwen2.5:3b` model, only for the Streamlit AI mode.
 
@@ -411,10 +414,10 @@ Profile data is fetched on every run; it is not persisted between runs.
 
 ## Streamlit interface
 
-Install Streamlit separately:
+From the repository root, install the optional web dependency:
 
 ```console
-python -m pip install "streamlit>=1.40"
+python -m pip install -e ".[web]"
 ```
 
 Run it from the `interface` directory so its theme configuration is loaded:
@@ -461,30 +464,45 @@ CLI, it does not apply the CSV `username`-column parser.
 
 ## Docker
 
-The image contains the CLI only. It is based on `python:3.12-slim`, runs as a
-non-root user, and displays help when started without arguments.
+The Dockerfile has separate `cli` and `streamlit` build targets. Both run as a
+non-root user. The Streamlit image includes the optional web dependency, while
+Docker Compose runs it alongside the official Ollama image and downloads the
+`qwen2.5:3b` model into a persistent volume on first startup.
 
-Build the image from the repository root:
-
-```console
-docker build -t gh-screener:local .
-```
-
-Run it with the token supplied at runtime:
+Create `.env` from `.env.example` at the repository root and set `GITHUB_TOKEN`
+before starting the services. From the repository root, run:
 
 ```console
-docker run --rm --env-file .env gh-screener:local octocat --commits active
+docker compose up --build -d
 ```
 
-Do not copy the token into the image. To use a local input file, mount it
-read-only:
+Open <http://localhost:8501>. The first startup needs to download the Ollama
+model and may take several minutes. Follow the service logs with:
+
+```console
+docker compose logs -f streamlit ollama-model
+```
+
+Stop the services with `docker compose down`. The downloaded model stays in the
+`ollama_data` volume. Use `docker compose down -v` only when you also want to
+delete that model cache.
+
+To build and run the CLI image instead:
+
+```console
+docker build --target cli -t gh-screener:cli .
+docker run --rm --env-file .env gh-screener:cli octocat --commits active
+```
+
+Do not copy the token into either image. To use a local input file with the
+CLI, mount it read-only:
 
 ### Windows PowerShell
 
 ```powershell
 docker run --rm --env-file .env `
   --mount "type=bind,source=$((Resolve-Path .\profiles.txt).Path),target=/app/profiles.txt,readonly" `
-  gh-screener:local --file /app/profiles.txt --commits active
+  gh-screener:cli --file /app/profiles.txt --commits active
 ```
 
 ### Linux or macOS
@@ -492,7 +510,7 @@ docker run --rm --env-file .env `
 ```bash
 docker run --rm --env-file .env \
   --mount "type=bind,source=$PWD/profiles.txt,target=/app/profiles.txt,readonly" \
-  gh-screener:local --file /app/profiles.txt --commits active
+  gh-screener:cli --file /app/profiles.txt --commits active
 ```
 
 ## Development and tests

@@ -1,0 +1,41 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  ollama-model:
+    image: ollama/ollama:latest
+    command: ["pull", "qwen2.5:3b"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+  streamlit:
+    build:
+      context: .
+      target: streamlit
+    image: gh-screener:streamlit
+    env_file:
+      - .env
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    ports:
+      - "8501:8501"
+    depends_on:
+      ollama-model:
+        condition: service_completed_successfully
+
+volumes:
+  ollama_data:
