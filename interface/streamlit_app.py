@@ -177,6 +177,14 @@ def reset_filters() -> None:
     st.session_state.note = ""
 
 
+def clear_ai_criteria() -> None:
+    if st.session_state.ai_criteria is not None:
+        st.session_state.ai_criteria = None
+        st.session_state.note = (
+            "AI criteria cleared. Screening will use the visible filters."
+        )
+
+
 def request_run() -> None:
     st.session_state.run_requested = True
 
@@ -205,7 +213,10 @@ def run_screening() -> None:
         return
 
     try:
-        if st.session_state.ai_criteria is not None:
+        if (
+            st.session_state.get("mode") == "AI"
+            and st.session_state.ai_criteria is not None
+        ):
             criteria = st.session_state.ai_criteria
         else:
             try:
@@ -255,6 +266,7 @@ with c_mode:
         default="Profiles",
         key="mode",
         label_visibility="collapsed",
+        on_change=clear_ai_criteria,
     )
 mode = st.session_state.get("mode") or "Profiles"
 is_ai = mode == "AI"
@@ -307,13 +319,27 @@ elif upload is None:
 # Filters (stacked)
 # --------------------------------------------------------------------------- #
 st.segmented_control(
-    "Commits (last 365 days)", COMMIT_LIST, key="commit", selection_mode="single"
+    "Commits (last 365 days)",
+    COMMIT_LIST,
+    key="commit",
+    selection_mode="single",
+    on_change=clear_ai_criteria,
 )
-st.pills("Languages", LANGUAGES, key="langs", selection_mode="multi")
+st.pills(
+    "Languages",
+    LANGUAGES,
+    key="langs",
+    selection_mode="multi",
+    on_change=clear_ai_criteria,
+)
 st.segmented_control(
-    "Public repositories", REPO_LIST, key="repos", selection_mode="single"
+    "Public repositories",
+    REPO_LIST,
+    key="repos",
+    selection_mode="single",
+    on_change=clear_ai_criteria,
 )
-st.checkbox("Exclude .env committers", key="env")
+st.checkbox("Exclude .env committers", key="env", on_change=clear_ai_criteria)
 st.button("Reset filters", on_click=reset_filters, type="tertiary")
 
 # --------------------------------------------------------------------------- #
